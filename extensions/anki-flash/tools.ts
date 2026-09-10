@@ -127,6 +127,8 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 		promptSnippet: "Create Anki flashcards",
 		promptGuidelines: [
 			"Use anki_add_note when the user asks to turn material into flashcards or to remember something as a card.",
+			"Always include the tag 'pi' in anki_add_note tags so agent-made cards are findable with 'tag:pi'.",
+			"When creating multiple cards from a discussion, first list every draft (front/back) in the chat as a table and wait for explicit user approval before calling anki_add_note.",
 			"When using anki_add_note, tell the user the created card fields afterwards.",
 		],
 		parameters: Type.Object({

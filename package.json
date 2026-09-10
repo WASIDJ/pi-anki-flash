@@ -1,11 +1,12 @@
 {
   "name": "pi-anki-flash",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Full-featured Anki flashcard client inside pi — review, browse, add notes, deck stats, and FSRS retention simulation via AnkiConnect",
   "keywords": ["pi-package", "anki", "flashcards", "spaced-repetition"],
   "license": "MIT",
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
   },
   "engines": {
     "node": ">=20"
