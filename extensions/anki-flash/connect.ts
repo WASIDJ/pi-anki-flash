@@ -16,6 +16,7 @@ export async function anki<T>(action: string, params: Record<string, unknown> = 
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ action, version: 6, params }),
+		signal: AbortSignal.timeout(10_000),
 	});
 	if (!res.ok) throw new Error(`AnkiConnect HTTP ${res.status}`);
 	const json = (await res.json()) as { result: T; error: string | null };
@@ -133,6 +134,10 @@ export const deleteNotes = (notes: number[]) => anki<unknown>("deleteNotes", { n
 export const findNotes = (query: string) => anki<number[]>("findNotes", { query });
 export const modelNames = () => anki<string[]>("modelNames");
 export const modelFieldNames = (modelName: string) => anki<string[]>("modelFieldNames", { modelName });
+export const modelTemplates = (modelName: string) =>
+	anki<Record<string, { Front: string; Back: string }>>("modelTemplates", { modelName });
+export const getTags = () => anki<string[]>("getTags");
+export const canAddNotes = (notes: AddNoteParams[]) => anki<boolean[]>("canAddNotes", { notes });
 
 // ---------------------------------------------------------------------------
 // Media

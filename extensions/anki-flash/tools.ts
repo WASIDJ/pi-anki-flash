@@ -7,18 +7,16 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-	addNote,
 	cardsInfo,
 	deckNames,
 	deleteNotes,
 	findCards,
 	getDeckStats,
-	modelFieldNames,
-	modelNames,
 	toggleSuspend,
 } from "./connect";
 import { loadConfig, setConfigKey, parseConfigValue } from "./config";
 import { simulateDeck, formatSimTable } from "./fsrs";
+import { authoringContext, reviewAndAdd } from "./authoring";
 
 function ok(text: string, details?: Record<string, unknown>) {
 	return { content: [{ type: "text" as const, text }], details };
@@ -119,47 +117,61 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 	});
 
 	// ------------------------------------------------------------ write tools
+	pi.registerTool({
+		name: "anki_note_context",
+		label: "Anki Templates & Tags",
+		description: "Read real Anki note templates (models), named fields, cloze fields, decks and existing tags before drafting cards. Optionally let the user manually select a template.",
+		promptSnippet: "Discover Anki templates and tags; optionally select a template manually",
+		promptGuidelines: [
+			"Before making cards, call anki_note_context. Reuse relevant existing tags and select a suitable template from the returned schema.",
+			"For manual template selection use templateMode=manual; otherwise choose automatically based on the content. Respect an explicitly named template.",
+		],
+		parameters: Type.Object({ templateMode: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("manual")])) }),
+		async execute(_id, params, signal, _update, ctx) {
+			try {
+				const context = await authoringContext();
+				if (signal?.aborted) return ok("Cancelled", { status: "cancelled" });
+				if (params.templateMode === "manual") {
+					if (!ctx.hasUI) throw new Error("Interactive UI required for manual template selection");
+					const selected = await ctx.ui.select("选择模板（Anki 笔记类型）", context.templates.map((t) => t.name), { signal });
+					if (!selected || signal?.aborted) return ok("Template selection cancelled. Stop authoring.", { status: "cancelled" });
+					return ok(JSON.stringify({ ...context, selectedTemplate: selected }), { selectedTemplate: selected });
+				}
+				return ok(JSON.stringify(context));
+			} catch (e) {
+				return { ...ok(`Error: ${errText(e)}`, { error: errText(e) }), isError: true };
+			}
+		},
+	});
 
 	pi.registerTool({
 		name: "anki_add_note",
 		label: "Anki Add Note",
-		description: "Create a new Anki note (flashcard). Defaults to the Basic model; fields map by name.",
-		promptSnippet: "Create Anki flashcards",
+		description: "Preview an Anki draft with suggested tags and template, allow edits, then save ONLY when the user presses y. Supports named fields for custom and Cloze templates. Returns created, cancelled, or needs_revision.",
+		promptSnippet: "Preview, edit and confirm Anki flashcards with y/n",
 		promptGuidelines: [
 			"Use anki_add_note when the user asks to turn material into flashcards or to remember something as a card.",
-			"Always include the tag 'pi' in anki_add_note tags so agent-made cards are findable with 'tag:pi'.",
-			"When creating multiple cards from a discussion, first list every draft (front/back) in the chat as a table and wait for explicit user approval before calling anki_add_note.",
-			"When using anki_add_note, tell the user the created card fields afterwards.",
+			"Call this tool directly with a draft: its UI provides the preview and approval. Supply relevant suggested tags; pi is added automatically.",
+			"Use named fields matching anki_note_context, including {{c1::answer}} in a cloze field for Cloze templates. For automatic selection, choose the best available model for the content.",
+			"Create multiple cards sequentially so each gets its own review. If cancelled, do not retry that draft. If needs_revision, regenerate for the selected template and call again for confirmation.",
+			"When needs_revision includes feedback, apply that user feedback to the returned draft and pass the exact feedback in revision on your next anki_add_note call. Preserve prior deck and tags unless asked to change them.",
+			"Report success only for status=created. For an uncertain write/network error, search for the note before retrying to avoid duplicates.",
 		],
 		parameters: Type.Object({
-			deck: Type.String(),
-			front: Type.String(),
-			back: Type.String(),
+			deck: Type.Optional(Type.String()),
+			front: Type.Optional(Type.String()),
+			back: Type.Optional(Type.String()),
+			fields: Type.Optional(Type.Record(Type.String(), Type.String())),
 			tags: Type.Optional(Type.Array(Type.String())),
 			model: Type.Optional(Type.String()),
+			revision: Type.Optional(Type.String({ description: "The user's exact revision request, when regenerating after feedback; displayed in the next preview." })),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params, signal, _update, ctx) {
 			try {
-				const model = params.model ? String(params.model) : "Basic";
-				let fieldNames: string[];
-				try {
-					fieldNames = await modelFieldNames(model);
-				} catch {
-					throw new Error(`Unknown note model "${model}" (available: ${(await modelNames()).join(", ")})`);
-				}
-				const fields: Record<string, string> = {};
-				if (fieldNames.length >= 1) fields[fieldNames[0]] = String(params.front ?? "");
-				if (fieldNames.length >= 2) fields[fieldNames[1]] = String(params.back ?? "");
-				for (const extra of fieldNames.slice(2)) fields[extra] = "";
-				const id = await addNote({
-					deckName: String(params.deck),
-					modelName: model,
-					fields,
-					tags: (params.tags as string[] | undefined) ?? [],
-				});
-				return ok(`Note created: id=${id} deck=${params.deck} front="${String(params.front ?? "").slice(0, 60)}"`);
+				const result = await reviewAndAdd(params, ctx, signal);
+				return ok(JSON.stringify(result), result);
 			} catch (e) {
-				return ok(`Error: ${errText(e)}`, { error: errText(e) });
+				return { ...ok(`Error: ${errText(e)}`, { error: errText(e) }), isError: true };
 			}
 		},
 	});

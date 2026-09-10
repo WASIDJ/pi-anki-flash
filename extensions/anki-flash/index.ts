@@ -61,6 +61,20 @@ export default function (pi: ExtensionAPI) {
 	reloadConfig();
 	registerAnkiTools(pi);
 
+	pi.registerCommand("make-card", {
+		description: "Make cards from the conversation: /make-card [auto|manual] [instructions]",
+		handler: async (args) => {
+			const manual = /^manual(?:\s|$)/i.test(args.trim());
+			const request = args.trim().replace(/^(auto|manual)(?:\s+|$)/i, "");
+			pi.sendUserMessage(
+				`Make Anki cards from ${request || "the relevant material in our conversation"}. ` +
+				`Use anki_note_context with templateMode=${manual ? "manual" : "auto"}, then draft using the returned template fields and relevant suggested tags. ` +
+				"Call anki_add_note sequentially for interactive preview and y/n confirmation. Follow selected templates and handle needs_revision; respect cancellation.",
+				{ deliverAs: "followUp" },
+			);
+		},
+	});
+
 	// ------------------------------------------------------------ commands
 
 	pi.registerCommand("anki", {

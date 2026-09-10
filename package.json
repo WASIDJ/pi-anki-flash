@@ -1,9 +1,17 @@
 {
   "name": "pi-anki-flash",
-  "version": "0.2.0",
-  "description": "Full-featured Anki flashcard client inside pi — review, browse, add notes, deck stats, and FSRS retention simulation via AnkiConnect",
+  "version": "0.3.0",
+  "description": "Review Anki cards and create confirmed flashcards from Pi conversations through AnkiConnect",
   "keywords": ["pi-package", "anki", "flashcards", "spaced-repetition"],
+  "homepage": "https://github.com/WASIDJ/pi-anki-flash#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WASIDJ/pi-anki-flash.git"
+  },
   "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
   "pi": {
     "extensions": ["./extensions"],
     "skills": ["./skills"]

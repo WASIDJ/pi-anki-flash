@@ -1,90 +1,180 @@
 # pi-anki-flash
 
-A complete terminal Anki client embedded in [pi](https://github.com/mariozechner/pi) the coding agent — review cards in a full-screen overlay while the agent works, add notes from chat, search decks, and simulate FSRS retention targets. Everything goes through [AnkiConnect](https://ankiweb.net/shared/info/2055492159), so grading uses Anki's real scheduler and syncs to AnkiWeb.
+English | [简体中文](README.zh-CN.md)
 
-## Prerequisites
+An Anki client and conversational card-authoring workflow for the
+[Pi coding agent](https://pi.dev/). Review cards without leaving the terminal,
+turn the current conversation into confirmed Anki notes, browse your collection,
+inspect deck statistics, and estimate FSRS workloads.
 
-- **Anki desktop** running, with the **AnkiConnect** add-on (code `2055492159`). Default endpoint `http://127.0.0.1:8765` (override via `ankiFlash.connectUrl`).
-- Images render inline on terminals with a graphics protocol: **Ghostty, Kitty, WezTerm, iTerm2** (not under tmux). Elsewhere they degrade to `[image: …]` placeholders.
-- Audio plays with macOS `afplay` (adjust by forking if you're on Linux — swap in `mpv`/`aplay`).
+All collection and review operations go through
+[AnkiConnect](https://ankiweb.net/shared/info/2055492159), so cards use Anki's
+real scheduler and sync normally through AnkiWeb.
 
-## Install
+## Highlights
+
+- Make cards from the current conversation with automatic or manual note-type selection.
+- Preview every generated note before writing it; press `y` to save or `n` to skip.
+- Revise drafts in natural language, edit fields or tags, switch note types, and choose or create decks.
+- Reuse existing Anki tags and mark agent-authored notes with `pi`.
+- Use Basic, Cloze, Markdown, and custom note types through their real named fields.
+- Review and grade due cards in a terminal overlay backed by Anki's scheduler.
+- Browse cards, inspect due counts, and run a read-only FSRS workload simulation.
+
+## Requirements
+
+- Node.js 20 or newer and a working Pi installation.
+- Anki Desktop running with AnkiConnect installed (add-on code `2055492159`).
+- The default endpoint is `http://127.0.0.1:8765`; change `ankiFlash.connectUrl` if needed.
+- Ghostty, Kitty, WezTerm, and iTerm2 can render supported images inline. Other terminals show placeholders.
+- Audio playback currently uses macOS `afplay`.
+
+## Installation
 
 ```bash
 pi install git:github.com/WASIDJ/pi-anki-flash
 ```
 
-## Review overlay
+Run `/reload` if Pi was already open. Keep Anki Desktop running while using the extension.
 
-`/anki` (auto-picks the deck with most due cards) · `/anki AIInfra` · `Ctrl+Shift+K`
+## Make cards from a conversation
 
-| Key    | Action                                    |
-| ------ | ----------------------------------------- |
-| Space  | reveal answer (audio replays)             |
-| 1–4    | Again / Hard / Good / Easy (real grading) |
-| r      | replay audio                              |
-| u      | undo last grade                           |
-| s      | suspend / unsuspend current card          |
-| b      | toggle browse mode (j/k to navigate)      |
-| a      | add a card (front → back form)            |
-| q/Esc  | close                                     |
+Ask Pi naturally:
 
-Long cards are capped at 30 image-rows / 60 text-lines per section with a "truncated" hint — view the full card in Anki or anki-tui.
+```text
+Make a card from what we just discussed.
+Turn this explanation into two Anki cards.
+Make a card and let me choose the template manually.
+Use Anki Markdown Cloze for this card.
+```
 
-## Chat commands
+Or use `/make-card [instructions]` for automatic note-type selection and
+`/make-card manual [instructions]` to choose a note type first.
 
-| Command                                | Purpose                                  |
-| -------------------------------------- | ---------------------------------------- |
-| `/anki [deck]`                         | review overlay                           |
-| `/anki-add "front | back" [deck]`      | add a Basic card                         |
-| `/anki-browse <query>`                 | search cards (Anki search syntax)        |
-| `/anki-stats [deck]`                   | new / learn / review counts              |
-| `/anki-decks`                          | list decks with due totals               |
-| `/anki-newdeck <name>`                 | create a deck                            |
-| `/anki-config [key] [value]`           | show or change configuration             |
-| `/anki-sim [deck]`                     | FSRS retention simulation (see below)    |
+Pi reads the note types, named fields, decks, and tags from your running Anki
+collection. It generates one draft at a time and opens an interactive preview.
+The note is written only after you press `y`.
 
-While the agent is working, a widget above the editor shows how many cards are due.
+| Key | Action |
+| --- | --- |
+| `y` | Save the displayed note |
+| `n` / `Esc` | Skip it |
+| `r` | Give Pi a natural-language revision request and preview the rewrite |
+| `e` | Edit the named fields as JSON |
+| `t` | Choose another Anki note type and regenerate its fields |
+| `g` | Edit suggested tags |
+| `d` | Change or create the destination deck |
+| `↑` / `↓`, `j` / `k` | Scroll a long preview |
 
-## Agent tools
+The header keeps the deck, note type, suggested tags, and latest revision visible.
+HTML fields appear as readable text in the preview and retain their original HTML
+when saved. Use `::` when creating nested decks, for example
+`Languages::English`. Deck creation happens immediately, so skipping the card
+afterward leaves an empty deck in Anki.
 
-The LLM inside pi gets nine tools so it can help you manage Anki directly:
+Find today's agent-authored notes with `/anki-browse tag:pi added:1`.
 
-- `anki_list_decks` · `anki_find_cards` · `anki_card_info` · `anki_deck_stats`
-- `anki_add_note` · `anki_delete_notes` · `anki_suspend_cards`
-- `anki_set_config` · `anki_simulate_retention`
+### pi-permission-system
 
-Write-level tools carry guidelines to preview destructive operations before running.
-
-## Configuration
-
-Lives under the top-level `ankiFlash` key of `~/.pi/agent/settings.json` (pi round-trips unknown keys safely), editable via `/anki-config key value` or the `anki_set_config` tool:
+`anki_add_note` contains its own mandatory preview. If `pi-permission-system` is
+installed, allow this tool to avoid a second generic dialog before the preview:
 
 ```json
 {
-  "connectUrl": "http://127.0.0.1:8765",
-  "defaultDeck": null,
-  "deckPriority": ["PTE", "AIInfra"],
-  "autoOpen": { "enabled": false, "cooldownMin": 30, "onlyWhenDue": true },
-  "media": { "playAudio": true, "renderImages": true, "maxImageWidthCells": 40, "maxImageHeightCells": 30 },
-  "review": { "allowBrowsingInModal": true },
-  "sim": { "retentions": [0.8, 0.85, 0.9, 0.95], "historyDays": 30 }
+  "permission": {
+    "anki_add_note": "allow"
+  }
 }
 ```
 
-Set `autoOpen.enabled` to pop the review overlay automatically when the agent starts (rate-limited by `cooldownMin`, once per session).
+Other tool permissions remain independent.
+
+## Review cards
+
+Open the review overlay with `/anki`, `/anki <deck>`, or `Ctrl+Shift+K`. With no
+deck argument, the extension considers `deckPriority`, then chooses the deck with
+the most due cards.
+
+| Key | Action |
+| --- | --- |
+| `Space` | Reveal the answer and replay audio |
+| `1`–`4` | Grade Again / Hard / Good / Easy through Anki |
+| `r` | Replay audio |
+| `u` | Undo the last grade |
+| `s` | Suspend or unsuspend the current card |
+| `b` | Toggle browse mode; use `j` / `k` to navigate |
+| `a` | Open the simple Basic note form |
+| `q` / `Esc` | Close the overlay |
+
+Long cards are capped at 30 image rows and 60 text lines per section. Open the
+card in Anki when the overlay reports truncated content.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `/make-card [instructions]` | Generate and confirm cards from the conversation |
+| `/make-card manual [instructions]` | Choose the note type before generation |
+| `/anki [deck]` | Review due cards |
+| `/anki-add "front \| back" [deck]` | Directly add a simple Basic note |
+| `/anki-browse <query>` | Search with Anki search syntax |
+| `/anki-stats [deck]` | Show new, learning, and review counts |
+| `/anki-decks` | List decks and due totals |
+| `/anki-newdeck <name>` | Create a deck |
+| `/anki-config [key] [value]` | Read or change extension settings |
+| `/anki-sim [deck]` | Estimate FSRS workload at several retention targets |
+
+Pi receives ten tools:
+
+```text
+anki_list_decks       anki_find_cards       anki_card_info
+anki_deck_stats       anki_note_context      anki_add_note
+anki_delete_notes     anki_suspend_cards     anki_set_config
+anki_simulate_retention
+```
+
+## Configuration
+
+Settings live under `ankiFlash` in `~/.pi/agent/settings.json` and can also be
+changed with `/anki-config` or `anki_set_config`:
+
+```json
+{
+  "ankiFlash": {
+    "connectUrl": "http://127.0.0.1:8765",
+    "defaultDeck": null,
+    "deckPriority": ["Languages", "AIInfra"],
+    "autoOpen": { "enabled": false, "cooldownMin": 30, "onlyWhenDue": true },
+    "media": { "playAudio": true, "renderImages": true, "maxImageWidthCells": 40, "maxImageHeightCells": 30 },
+    "review": { "allowBrowsingInModal": true },
+    "sim": { "retentions": [0.8, 0.85, 0.9, 0.95], "historyDays": 30 }
+  }
+}
+```
+
+When `autoOpen.enabled` is true, Pi may open the review overlay once per session,
+subject to `cooldownMin` and `onlyWhenDue`.
 
 ## FSRS simulation
 
-`/anki-sim [deck]` estimates future review workload at different desired-retention targets. It uses the FSRS-4.5 forgetting-curve inversion `I(S, DR) = S · (DR⁻² − 1) · 81/19`, scaling every in-review card's interval from its current scheduling to each target, then sums `Σ 1/I` as the expected daily review count. Learning cards count as a fixed addend; stability is assumed unchanged (first-order approximation). It's a read-only planning aid — it never touches Anki's scheduler.
+`/anki-sim [deck]` estimates review volume using the FSRS-4.5 forgetting-curve
+inversion `I(S, DR) = S × (DR⁻² − 1) × 81/19`. It treats estimated stability as
+unchanged, adds learning cards as fixed workload, and reports expected daily
+reviews. It never modifies Anki's scheduler.
 
 ## Development
 
 ```bash
-pi -e ./extensions/anki-flash/index.ts   # try without installing
+pi -e ./extensions/anki-flash/index.ts
+npm test
+PI_ANKI_LIVE=1 npm test
+node tests/rpc-smoke.mjs
 ```
 
-Layout: `extensions/anki-flash/` — `connect.ts` (AnkiConnect), `config.ts`, `render.ts` (text/audio/image), `review.ts` (overlay), `tools.ts` (agent tools), `fsrs.ts` (simulation), `index.ts` (entry).
+- `npm test` uses mocked Anki responses and Pi's actual extension loader.
+- `PI_ANKI_LIVE=1 npm test` discovers and preflights note types against a running Anki instance without writing notes.
+- `node tests/rpc-smoke.mjs` exercises automatic/manual selection, revision, preview, and cancellation with the configured Pi model. It never approves a write.
+- Set `PI_PACKAGE_DIR` if Pi is installed outside the standard global Node path.
 
 ## License
 

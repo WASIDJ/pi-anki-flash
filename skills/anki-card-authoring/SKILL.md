@@ -1,25 +1,21 @@
 ---
 name: anki-card-authoring
-description: Turn conversation material into Anki flashcards of reviewable quality. Use when the user asks to "make cards", "make a deck", "记住这个", or asks the agent to author Anki notes from the discussion.
+description: Make Anki cards from conversation when asked to make card, 制卡, or 记住这个; support automatic or manual template selection and suggested tags.
 ---
 
 # Anki Card Authoring Workflow
 
-The agent has Anki tools (`anki_add_note`, `anki_list_decks`, `anki_newdeck`)
-via pi-anki-flash. Follow this workflow — never batch-write without a review
-gate.
+Use pi-anki-flash's tools to draft and review cards inside the conversation.
 
-## 1. Propose before writing
+## 1. Discover, draft and preview
 
-Draft every card in the chat FIRST as a table, then STOP and wait for
-explicit approval ("OK", "入库", "全部加", or per-card edits).
+Call `anki_note_context` to read available note types (templates), exact field names, decks and existing tags. Use `templateMode: "manual"` when the user wants a template picker; otherwise use `auto`. Respect a named template or the returned `selectedTemplate`. A cancelled picker ends this request.
 
-| # | Deck | Front | Back | 为什么值得记 |
-|---|------|-------|------|-------------|
+Choose a template suitable for the material when none was specified: question/answer for direct recall, Cloze for a sentence with a missing fact. Supply named `fields` matching the schema; put `{{c1::answer}}` in an actual `clozeFields` field. Specialized types such as Image Occlusion need their required data; use them only when that data is available.
 
-Do NOT call `anki_add_note` in the same turn you propose the drafts.
-Only write the approved subset. If the user edits a card verbally, apply the
-edit then confirm the final text once.
+Call `anki_add_note` immediately with the draft, model, fields and suggested tags. Its preview provides y/n confirmation, editing and template/deck switching. This is the review gate; an extra chat approval turn is unnecessary. Submit multiple drafts sequentially.
+
+Handle the result: `created` means saved (report the note ID); `cancelled` means skip that draft without retrying; `needs_revision` means regenerate the returned draft for the selected template and call the tool again for a fresh preview. Preserve edited tags and deck from the returned draft. On a write/network error, check for an existing note before retrying.
 
 ## 2. Authoring rules (reject bad drafts yourself)
 
@@ -37,13 +33,12 @@ edit then confirm the final text once.
 
 ## 3. Required metadata
 
-- Always add tag `pi` to agent-authored notes (the tool does not tag
-  automatically — pass `tags: ["pi", <context-tag>]`).
-- Deck: ask if ambiguous; default to the deck the user has been studying
-  (`anki_list_decks`, prefer deckPriority in ankiFlash config).
+- Suggest a few relevant tags, reusing existing names before introducing new ones. The tool adds `pi` automatically.
+- Use the deck requested in the conversation, or the returned default; omit an ambiguous deck so the tool asks the user to choose.
 
 ## 4. Review-and-fix commands for the user
 
+- `/make-card` — automatic template choice; `/make-card manual` — template picker.
 - `/anki-browse tag:pi added:1` — today's agent-made cards
 - Verbal kit: "删掉卡 #12345"(anki_delete_notes), "暂停这张"(anki_suspend_cards)
 - Tell the user these exist after the first authoring session.
