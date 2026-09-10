@@ -64,15 +64,47 @@ export function extractSounds(html: string): string[] {
 	return out;
 }
 
+function charWidth(ch: string): number {
+	const cp = ch.codePointAt(0) ?? 0;
+	// CJK + full-width ranges occupy 2 cells
+	return cp >= 0x1100 &&
+		(cp <= 0x115f ||
+			cp === 0x2329 ||
+			cp === 0x232a ||
+			(cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
+			(cp >= 0xac00 && cp <= 0xd7a3) ||
+			(cp >= 0xf900 && cp <= 0xfaff) ||
+			(cp >= 0xfe10 && cp <= 0xfe6f) ||
+			(cp >= 0xff00 && cp <= 0xff60) ||
+			(cp >= 0xffe0 && cp <= 0xffe6) ||
+			(cp >= 0x20000 && cp <= 0x3fffd))
+		? 2
+		: 1;
+}
+
+export function visibleLen(s: string): number {
+	let n = 0;
+	for (const ch of s) n += charWidth(ch);
+	return n;
+}
+
+/** Wrap text to lines each no wider than `width` terminal cells (CJK-aware). */
 export function wrap(text: string, width: number): string[] {
-	if (text.length <= width) return [text];
+	if (visibleLen(text) <= width) return [text];
 	const out: string[] = [];
-	let s = text;
-	while (s.length > width) {
-		out.push(s.slice(0, width));
-		s = s.slice(width);
+	let cur = "";
+	let curW = 0;
+	for (const ch of text) {
+		const w = charWidth(ch);
+		if (curW + w > width && cur.length > 0) {
+			out.push(cur);
+			cur = "";
+			curW = 0;
+		}
+		cur += ch;
+		curW += w;
 	}
-	if (s.length) out.push(s);
+	if (cur.length) out.push(cur);
 	return out;
 }
 

@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	findCards,
 	cardsInfo,
@@ -355,13 +355,14 @@ export class FlashcardComponent {
 		const bold = (s: string) => `\x1b[1m${s}\x1b[22m`;
 		const gold = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
-		const boxWidth = Math.max(20, Math.min(width - 6, 88));
+		const boxWidth = Math.max(20, Math.min(width - 10, 86));
 		const pad = (content: string) => {
-			const w = visibleWidth(content);
 			// Escape-sequence lines (images) have no width to pad.
 			const isImageSeq = content.includes("\x1b_G") || content.includes("\x1bPq");
 			if (isImageSeq) return ` ${dim("│")} ${content} ${dim("│")}`;
-			return ` ${dim("│")} ${content}${" ".repeat(Math.max(0, boxWidth - w))} ${dim("│")}`;
+			const safe = truncateToWidth(content, boxWidth);
+			const w = visibleWidth(safe);
+			return ` ${dim("│")} ${safe}${" ".repeat(Math.max(0, boxWidth - w))} ${dim("│")}`;
 		};
 		const border = (l: string, r: string) => ` ${dim(l + "─".repeat(boxWidth + 2) + r)}`;
 
@@ -418,7 +419,10 @@ export class FlashcardComponent {
 
 		lines.push(pad(this.footer(bold, EASE_LABELS, this.card?.buttons ?? [1, 2, 3, 4])));
 		lines.push(border("╰", "╯"));
-		return lines;
+		// Absolute safety: never exceed the allotted width regardless of width math.
+		return lines.map((l) =>
+			l.includes("\x1b_G") || l.includes("\x1bPq") || visibleWidth(l) <= width ? l : truncateToWidth(l, width - 1),
+		);
 	}
 
 	private footer(bold: (s: string) => string, labels: Record<number, string>, buttons: number[]): string {
