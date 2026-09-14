@@ -92,9 +92,9 @@ Other tool permissions remain independent.
 
 ## Review cards
 
-Open the review overlay with `/anki`, `/anki <deck>`, or `Ctrl+Shift+K`. With no
-deck argument, the extension considers `deckPriority`, then chooses the deck with
-the most due cards.
+Choose a deck and start reviewing in Anki first, then open the overlay with `/anki`
+or `Ctrl+Shift+K`. Pi continues the card already shown in Anki and does not switch
+decks.
 
 | Key | Action |
 | --- | --- |
@@ -121,11 +121,11 @@ These rows can be toggled with `review.showCounts`, `review.showCardState`, and
 | --- | --- |
 | `/make-card [instructions]` | Generate and confirm cards from the conversation |
 | `/make-card manual [instructions]` | Choose the note type before generation |
-| `/anki [deck]` | Review due cards |
+| `/anki` | Continue the current Anki review |
 | `/anki-add "front \| back" [deck]` | Directly add a simple Basic note |
 | `/anki-browse <query>` | Search with Anki search syntax |
 | `/anki-stats [deck]` | Show new, learning, and review counts |
-| `/anki-decks` | List decks and due totals |
+| `/anki-decks` | Read-only list of decks and due totals |
 | `/anki-newdeck <name>` | Create a deck |
 | `/anki-config [key] [value]` | Read or change extension settings |
 | `/anki-sim [deck]` | Estimate FSRS workload at several retention targets |

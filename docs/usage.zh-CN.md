@@ -41,16 +41,10 @@ pi install /absolute/path/to/pi-anki-flash
 
 ## 在终端中复习
 
-打开待复习张数最多的牌组：
+先在 Anki 中选择目标牌组并点击“开始学习”，然后打开 Pi 复习界面：
 
 ```text
 /anki
-```
-
-打开指定牌组：
-
-```text
-/anki 有限理性
 ```
 
 也可以按 `Ctrl+Shift+K` 快速打开。复习界面会显示新卡、学习中、待复习、牌组总数和当前卡片状态。显示答案后，每个评分旁会显示 Anki 计算的下次复习间隔。
@@ -76,8 +70,8 @@ pi install /absolute/path/to/pi-anki-flash
 
 | 命令 | 用途 |
 | --- | --- |
-| `/anki [牌组]` | 打开复习界面 |
-| `/anki-decks` | 查看所有牌组和到期张数 |
+| `/anki` | 继续 Anki 当前牌组的复习 |
+| `/anki-decks` | 只读查看所有牌组和到期张数，不切换牌组 |
 | `/anki-stats [牌组]` | 查看新卡、学习中和待复习统计 |
 | `/anki-browse <查询>` | 使用 Anki 查询语法搜索卡片 |
 | `/anki-add 正面 \| 背面 \| 牌组` | 添加 Basic 卡片 |
@@ -236,9 +230,9 @@ Ghostty、Kitty、WezTerm 和 iTerm2 等支持图像协议的终端可以内联�
 
 重启 pi。然后运行 `pi list`，确认只安装了一个 pi-anki-flash 来源。开发时如果安装的是 Git 版本，本地未提交的修改不会自动进入已安装副本；可以改为安装本地目录。
 
-### 牌组没有出现在自动选择中
+### `/anki` 提示先在 Anki 中开始复习
 
-自动选择会优先使用 `deckPriority`，否则选择到期卡片最多的非 Default 牌组。如果牌组没有到期卡片，`/anki` 不会自动选择它；请使用 `/anki 牌组名` 明确打开。
+AnkiConnect 无法读取牌组浏览器中仅被选中的牌组。请在 Anki 中选择牌组并点击“开始学习”，让复习卡片显示出来，然后再次运行 `/anki`。
 
 ### 修改目标保留率后间隔没有立即变化
 

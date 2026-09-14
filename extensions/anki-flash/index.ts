@@ -2,7 +2,7 @@
  * pi-anki-flash — full Anki client inside pi.
  *
  * Commands:
- *   /anki [deck]                         review modal (Ctrl+Shift+K)
+ *   /anki                                review current Anki card (Ctrl+Shift+K)
  *   /anki-add "front | back" [deck]      add a Basic card
  *   /anki-browse <query>                 search cards, results in chat
  *   /anki-stats [deck]                   deck statistics
@@ -40,7 +40,7 @@ function reloadConfig(): void {
 	setConnectUrl(config.connectUrl);
 }
 
-async function openOverlay(pi: ExtensionAPI, ctx: ExtensionContext, deckArg?: string): Promise<void> {
+async function openOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (ctx.mode !== "tui" || !ctx.hasUI) {
 		ctx.ui.notify("anki-flash requires interactive TUI mode", "error");
 		return;
@@ -51,7 +51,7 @@ async function openOverlay(pi: ExtensionAPI, ctx: ExtensionContext, deckArg?: st
 		return;
 	}
 	await ctx.ui.custom((tui, _theme, _kb, done) => {
-		const component = new FlashcardComponent(pi, tui, () => done(undefined), config, deckArg ?? null);
+		const component = new FlashcardComponent(pi, tui, () => done(undefined), config, null);
 		void component.start();
 		return component;
 	});
@@ -78,9 +78,13 @@ export default function (pi: ExtensionAPI) {
 	// ------------------------------------------------------------ commands
 
 	pi.registerCommand("anki", {
-		description: "Review due Anki cards (optional arg: deck name)",
+		description: "Continue the review currently open in Anki",
 		handler: async (args, ctx) => {
-			await openOverlay(pi, ctx, args.trim() || undefined);
+			if (args.trim()) {
+				ctx.ui.notify("请直接在 Anki 中切换牌组并开始复习，然后运行 /anki", "error");
+				return;
+			}
+			await openOverlay(pi, ctx);
 		},
 	});
 

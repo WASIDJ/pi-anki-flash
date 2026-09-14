@@ -15,13 +15,11 @@ import {
 	type CardInfo,
 	findCards,
 	cardsInfo,
-	guiDeckReview,
 	guiCurrentCard,
 	guiShowAnswer,
 	guiAnswerCard,
 	undo,
 	toggleSuspend,
-	pickDeck,
 	addNote,
 	type GuiCard,
 } from "./connect";
@@ -84,15 +82,12 @@ export class FlashcardComponent {
 
 	async start(): Promise<void> {
 		try {
-			const deck = await pickDeck(this.deckArg ?? this.config.defaultDeck ?? undefined, this.config.deckPriority);
-			if (!deck) {
-				this.view = "done";
-				this.repaint();
-				return;
+			this.card = await guiCurrentCard();
+			if (!this.card) {
+				throw new Error("请先在 Anki 中选择牌组并开始复习，再打开 Pi 复习界面");
 			}
-			this.addDeck = deck;
-			await guiDeckReview(deck);
-			await this.loadCurrentCard();
+			this.addDeck = this.card.deckName;
+			await this.finishLoadingCurrentCard();
 		} catch (e) {
 			this.fail(e);
 		}
@@ -101,6 +96,10 @@ export class FlashcardComponent {
 
 	private async loadCurrentCard(): Promise<void> {
 		this.card = await guiCurrentCard();
+		await this.finishLoadingCurrentCard();
+	}
+
+	private async finishLoadingCurrentCard(): Promise<void> {
 		await this.refreshMetadata();
 		if (!this.card) {
 			this.view = "done";
