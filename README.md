@@ -54,7 +54,11 @@ Or use `/make-card [instructions]` for automatic note-type selection and
 
 Pi reads the note types, named fields, decks, and tags from your running Anki
 collection. It generates one draft at a time and opens an interactive preview.
-The note is written only after you press `y`.
+The note is written only after you press `y`. After saving, choose what the next
+card should explore: mechanism, prerequisite, contrast, application, boundary,
+consequence, another source concept, a custom direction, or finish. Pi then makes
+one related, self-contained card while preserving the selected deck, note type,
+and tags.
 
 | Key | Action |
 | --- | --- |

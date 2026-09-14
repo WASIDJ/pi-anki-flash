@@ -13,9 +13,9 @@ Call `anki_note_context` to read available note types (templates), exact field n
 
 Choose a template suitable for the material when none was specified: question/answer for direct recall, Cloze for a sentence with a missing fact. Supply named `fields` matching the schema; put `{{c1::answer}}` in an actual `clozeFields` field. Specialized types such as Image Occlusion need their required data; use them only when that data is available.
 
-Call `anki_add_note` immediately with the draft, model, fields and suggested tags. Its preview provides y/n confirmation, editing and template/deck switching. This is the review gate; an extra chat approval turn is unnecessary. Submit multiple drafts sequentially.
+Call `anki_add_note` immediately with the draft, model, fields, suggested tags, `guided: true`, and a short `chain.anchor` naming the core concept. Its preview provides y/n confirmation, editing and template/deck switching. This is the review gate; an extra chat approval turn is unnecessary.
 
-Handle the result: `created` means saved (report the note ID); `cancelled` means skip that draft without retrying; `needs_revision` means regenerate the returned draft for the selected template and call the tool again for a fresh preview. Preserve edited tags and deck from the returned draft. On a write/network error, check for an existing note before retrying.
+Handle the result: `cancelled` means stop without retrying; `needs_revision` means regenerate from the returned draft and call the tool again. After `created`, inspect `nextCard`. When present, generate exactly one card from the original source using its `direction`, `previousCard`, and `draft`, then call `anki_add_note` again without another chat question. Keep the new question self-contained, test a new relationship, and preserve the returned deck, model, tags, chain and guided mode. When `nextCard` is absent, the user chose to finish. On a write/network error, check for an existing note before retrying.
 
 ## 2. Authoring rules (reject bad drafts yourself)
 
@@ -30,6 +30,7 @@ Handle the result: `created` means saved (report the note ID); `cancelled` means
 - Context matters: for names/theories, anchor with the person + field
   ("Simon 认为政策执行中的'满意解'指的是？").
 - Cloze-style phrasing beats essay phrasing for facts lifted from prose.
+- In a guided chain, connect each new card through one useful relationship: mechanism, prerequisite, contrast, application, boundary, consequence, or the user's custom direction. Name the concept explicitly so the card remains understandable during random review. Avoid repeating a relationship already recorded in `chain.coveredDirections`.
 
 ## 3. Required metadata
 

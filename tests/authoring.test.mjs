@@ -139,6 +139,7 @@ test("real Pi loader registers the tool and automatic/manual commands", async ()
 	await extension.commands.get("make-card").handler("", {});
 	assert.match(messages[0], /templateMode=manual/);
 	assert.match(messages[0], /最近的短语/);
+	assert.match(messages[0], /guided=true/);
 	assert.match(messages[1], /templateMode=auto/);
 });
 
@@ -164,6 +165,35 @@ test("y writes exactly the previewed card and normalized tags", async () => {
 	assert.deepEqual(writes[0].fields, { Front: "Question", Back: "Answer" });
 	assert.deepEqual(writes[0].tags, ["pi", "phrase", "english", "grammar"]);
 	assert.match(ctx.previews[0], /Question/);
+});
+
+test("guided authoring returns the selected relationship and preserved next-card state", async () => {
+	const result = resultData(await invoke("anki_add_note", {
+		...basic, guided: true, chain: { anchor: "有限理性", coveredDirections: ["定义"] },
+	}, uiContext({ keys: ["y"], selections: ["对比与辨析"] })));
+	assert.equal(result.status, "created");
+	assert.equal(result.nextCard.direction, "连接一个相近或容易混淆的概念并比较");
+	assert.equal(result.nextCard.draft.deck, "English");
+	assert.equal(result.nextCard.draft.model, "Basic");
+	assert.deepEqual(result.nextCard.draft.tags, ["pi", "phrase"]);
+	assert.equal(result.nextCard.draft.chain.anchor, "有限理性");
+	assert.deepEqual(result.nextCard.draft.chain.coveredDirections, ["定义", "连接一个相近或容易混淆的概念并比较"]);
+	assert.deepEqual(result.nextCard.previousCard.fields, { Front: "Question", Back: "Answer" });
+});
+
+test("guided authoring accepts a custom next-card direction", async () => {
+	const result = resultData(await invoke("anki_add_note", { ...basic, guided: true }, uiContext({
+		keys: ["y"], selections: ["自定义问题或方向…"], edits: ["连接到启发式偏差"],
+	})));
+	assert.equal(result.nextCard.direction, "连接到启发式偏差");
+});
+
+test("guided authoring stops when the user chooses finish", async () => {
+	const result = resultData(await invoke("anki_add_note", { ...basic, guided: true }, uiContext({
+		keys: ["y"], selections: ["结束制卡"],
+	})));
+	assert.equal(result.status, "created");
+	assert.equal(result.nextCard, undefined);
 });
 
 test("n and Esc never call preflight or write", async () => {

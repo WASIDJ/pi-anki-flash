@@ -204,6 +204,7 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 			"Use named fields matching anki_note_context, including {{c1::answer}} in a cloze field for Cloze templates. For automatic selection, choose the best available model for the content.",
 			"Create multiple cards sequentially so each gets its own review. If cancelled, do not retry that draft. If needs_revision, call again using the returned draft state and instruction.",
 			"The returned needs_revision draft uses anki_add_note parameter names and is authoritative. Preserve its deck, model, tags, and revision. For a template switch, regenerate sourceFields into the selected template's named fields without changing the other draft properties.",
+			"For /make-card and conversational card-making, set guided=true. After a created result with nextCard, immediately generate exactly one related card using nextCard.direction, previousCard, draft, and instruction; do not ask another chat question. Stop when nextCard is absent.",
 			"Report success only for status=created. For an uncertain write/network error, search for the note before retrying to avoid duplicates.",
 		],
 		parameters: Type.Object({
@@ -214,6 +215,11 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 			tags: Type.Optional(Type.Array(Type.String())),
 			model: Type.Optional(Type.String()),
 			revision: Type.Optional(Type.String({ description: "The user's exact revision request, when regenerating after feedback; displayed in the next preview." })),
+			guided: Type.Optional(Type.Boolean({ description: "After saving, let the user choose the relationship explored by the next card." })),
+			chain: Type.Optional(Type.Object({
+				anchor: Type.Optional(Type.String({ description: "The core concept shared by this card chain." })),
+				coveredDirections: Type.Optional(Type.Array(Type.String())),
+			})),
 		}),
 		async execute(_id, params, signal, _update, ctx) {
 			try {

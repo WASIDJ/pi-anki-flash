@@ -90,7 +90,7 @@ export default function (pi: ExtensionAPI) {
 			pi.sendUserMessage(
 				`Make Anki cards from ${request || "the relevant material in our conversation"}. ` +
 				`Use anki_note_context with templateMode=${manual ? "manual" : "auto"}, then draft using the returned template fields and relevant suggested tags. ` +
-				"Call anki_add_note sequentially for interactive preview and y/n confirmation. Follow selected templates and handle needs_revision; respect cancellation.",
+				"Call anki_add_note with guided=true and a concise chain.anchor for interactive preview and y/n confirmation. After each saved card, follow nextCard to generate one related card in the direction the user selected. Follow selected templates and handle needs_revision; stop when nextCard is absent or the user cancels.",
 				{ deliverAs: "followUp" },
 			);
 		},

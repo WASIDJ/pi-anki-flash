@@ -42,20 +42,50 @@ export interface NoteDraft {
 	fields?: Record<string, string>;
 	tags?: string[];
 	revision?: string;
+	guided?: boolean;
+	chain?: {
+		anchor?: string;
+		coveredDirections?: string[];
+	};
 }
 
 export function normalizeTags(tags: string[]): string[] {
 	return [...new Set(["pi", ...tags.flatMap((t) => t.trim().split(/[\s,，]+/)).filter(Boolean)])];
 }
 
-function continuationDraft(note: AddNoteParams, revision?: string): NoteDraft {
+function continuationDraft(note: AddNoteParams, source: NoteDraft, revision?: string): NoteDraft {
 	return {
 		deck: note.deckName,
 		model: note.modelName,
 		fields: { ...note.fields },
 		tags: [...(note.tags ?? [])],
+		...(source.guided ? { guided: true } : {}),
+		...(source.chain ? { chain: structuredClone(source.chain) } : {}),
 		...(revision ? { revision } : {}),
 	};
+}
+
+const NEXT_CARD_DIRECTIONS = [
+	["原因与机制", "解释这个概念为什么成立或如何运作"],
+	["前置概念", "追问理解这个概念所需的前置知识"],
+	["对比与辨析", "连接一个相近或容易混淆的概念并比较"],
+	["应用与例子", "用具体情境检验如何应用这个概念"],
+	["边界与反例", "探索这个概念的适用条件、限制或反例"],
+	["后果与影响", "追问这个概念会导致什么结果"],
+	["原文下一个重点", "连接原始材料中尚未覆盖的相关重点"],
+] as const;
+const CUSTOM_DIRECTION = "自定义问题或方向…";
+const FINISH_CHAIN = "结束制卡";
+
+async function chooseNextCardDirection(ctx: ExtensionContext, signal?: AbortSignal): Promise<string | undefined> {
+	const options = [...NEXT_CARD_DIRECTIONS.map(([label]) => label), CUSTOM_DIRECTION, FINISH_CHAIN];
+	const selected = await ctx.ui.select("下一张卡想探索哪个方向？", options, { signal });
+	if (!selected || selected === FINISH_CHAIN || signal?.aborted) return undefined;
+	if (selected === CUSTOM_DIRECTION) {
+		const custom = await ctx.ui.editor("输入下一张卡的问题或探索方向", "");
+		return custom?.trim() || undefined;
+	}
+	return NEXT_CARD_DIRECTIONS.find(([label]) => label === selected)?.[1];
 }
 
 async function selectDeck(ctx: ExtensionContext, signal?: AbortSignal): Promise<string | undefined> {
@@ -203,7 +233,27 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 			if (!valid) throw new Error("Anki rejected this draft (duplicate or invalid fields). No note was added.");
 			if (signal?.aborted) return { status: "cancelled", draft: note };
 			const noteId = await addNote(note);
-			return { status: "created", noteId, note };
+			if (!draft.guided || signal?.aborted) return { status: "created", noteId, note };
+			const direction = await chooseNextCardDirection(ctx, signal);
+			if (!direction) return { status: "created", noteId, note };
+			const coveredDirections = [...(draft.chain?.coveredDirections ?? []), direction];
+			return {
+				status: "created",
+				noteId,
+				note,
+				nextCard: {
+					direction,
+					previousCard: { model: note.modelName, fields: { ...note.fields } },
+					draft: {
+						deck: note.deckName,
+						model: note.modelName,
+						tags: [...(note.tags ?? [])],
+						guided: true,
+						chain: { anchor: draft.chain?.anchor, coveredDirections },
+					},
+					instruction: "Generate exactly one next card from the original conversation or source, following direction. Connect it semantically to previousCard while keeping its question self-contained. Test one new, meaningful relationship and avoid repeating coveredDirections. Call anki_add_note with every property from draft plus the new fields.",
+				},
+			};
 		}
 		if (choice === "e") {
 			const edited = await ctx.ui.editor("修改字段 JSON（保存后返回预览）", JSON.stringify(note.fields, null, 2));
@@ -222,7 +272,7 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 			const feedback = await ctx.ui.editor("你想怎么改？Pi 会按建议重写，再给你确认", draft.revision ?? "");
 			if (signal?.aborted) return { status: "cancelled", draft: note };
 			if (!feedback?.trim()) continue;
-			return { status: "needs_revision", template, draft: continuationDraft(note, feedback.trim()), feedback: feedback.trim(),
+			return { status: "needs_revision", template, draft: continuationDraft(note, draft, feedback.trim()), feedback: feedback.trim(),
 				instruction: "Revise draft.fields according to feedback, then call anki_add_note with every property from draft. Preserve draft.deck, draft.model, and draft.tags unless the feedback explicitly changes them. A new y confirmation is required." };
 		}
 		if (choice === "g") {
@@ -241,7 +291,11 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 			return {
 				status: "needs_revision",
 				template: selectedTemplate,
-				draft: { deck: note.deckName, model: selected, tags: [...(note.tags ?? [])] },
+				draft: {
+					deck: note.deckName, model: selected, tags: [...(note.tags ?? [])],
+					...(draft.guided ? { guided: true } : {}),
+					...(draft.chain ? { chain: structuredClone(draft.chain) } : {}),
+				},
 				sourceFields: { ...note.fields },
 				instruction: "Regenerate sourceFields into template.fields, then call anki_add_note with draft.deck, draft.model, draft.tags, and the regenerated named fields. Do not change the selected deck, model, or tags. A new preview and y confirmation are required.",
 			};
