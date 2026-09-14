@@ -1,6 +1,6 @@
 # pi-anki-flash
 
-[English](README.md) | 简体中文
+[English](README.md) | 简体中文 | [完整使用指南](docs/usage.zh-CN.md)
 
 面向 [Pi coding agent](https://pi.dev/) 的 Anki 客户端与对话制卡工作流。
 你可以直接把当前对话变成经过确认的 Anki 卡片，也可以在终端内复习、搜索卡片、

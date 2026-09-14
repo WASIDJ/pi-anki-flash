@@ -27,6 +27,9 @@ export interface AnkiFlashConfig {
 	};
 	review: {
 		allowBrowsingInModal: boolean;
+		showCounts: boolean;
+		showCardState: boolean;
+		showNextReviews: boolean;
 	};
 	sim: {
 		/** retention targets shown by /anki-sim */
@@ -42,7 +45,7 @@ export const DEFAULT_CONFIG: AnkiFlashConfig = {
 	deckPriority: [],
 	autoOpen: { enabled: false, cooldownMin: 30, onlyWhenDue: true },
 	media: { playAudio: true, renderImages: true, maxImageWidthCells: 40, maxImageHeightCells: 30 },
-	review: { allowBrowsingInModal: true },
+	review: { allowBrowsingInModal: true, showCounts: true, showCardState: true, showNextReviews: true },
 	sim: { retentions: [0.8, 0.85, 0.9, 0.95], historyDays: 30 },
 };
 

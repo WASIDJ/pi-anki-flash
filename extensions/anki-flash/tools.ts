@@ -13,10 +13,13 @@ import {
 	findCards,
 	getDeckStats,
 	toggleSuspend,
+	setConnectUrl,
 } from "./connect";
 import { loadConfig, setConfigKey, parseConfigValue } from "./config";
 import { simulateDeck, formatSimTable } from "./fsrs";
 import { authoringContext, reviewAndAdd } from "./authoring";
+
+import { getStudyPlan, setStudyPlan } from "./scheduling";
 
 function ok(text: string, details?: Record<string, unknown>) {
 	return { content: [{ type: "text" as const, text }], details };
@@ -27,6 +30,52 @@ function errText(e: unknown): string {
 }
 
 export function registerAnkiTools(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "anki_get_study_plan",
+		label: "Anki Study Plan",
+		description: "Read a deck's scheduling preset, FSRS desired retention, daily preset limits, learning steps, and other decks sharing the preset. FSRS enablement is unknown.",
+		promptSnippet: "Read a deck's real Anki scheduling settings",
+		parameters: Type.Object({ deck: Type.String() }),
+		async execute(_id, params) {
+			try {
+				setConnectUrl(loadConfig().connectUrl);
+				const result = await getStudyPlan(params.deck);
+				return ok(JSON.stringify(result, null, 2), result);
+			} catch (e) { return { ...ok(errText(e)), isError: true }; }
+		},
+	});
+
+	pi.registerTool({
+		name: "anki_set_study_plan",
+		label: "Anki Set Study Plan",
+		description: "Preview or apply actual scheduling settings to exactly one deck. Automatically isolates shared/default presets. desiredRetention uses a fraction (0.9 = 90%). Does not enable FSRS, optimize weights, bulk-reschedule cards, or assign subdecks. Daily limits are preset limits, not overrides.",
+		promptSnippet: "Set a deck's FSRS retention, daily limits, and learning steps",
+		promptGuidelines: [
+			"Use this tool for real Anki scheduling changes; anki_set_config only changes plugin behavior.",
+			"Read the current study plan first. If the user explicitly specifies deck and values, apply those values without asking again; otherwise preview a concrete proposal with apply=false and ask for the missing choices.",
+			"Convert 90% to desiredRetention=0.9. Change only requested fields. Report saved values and preset scope afterwards.",
+			"Always explain that FSRS must already be enabled in Anki; a stored retention target is not evidence of enablement. Do not claim parameter optimization or immediate rescheduling.",
+		],
+		parameters: Type.Object({
+			deck: Type.String(),
+			changes: Type.Object({
+				desiredRetention: Type.Optional(Type.Number({ minimum: 0.7, maximum: 0.99 })),
+				newCardsPerDay: Type.Optional(Type.Integer({ minimum: 0, maximum: 9999 })),
+				reviewsPerDay: Type.Optional(Type.Integer({ minimum: 0, maximum: 9999 })),
+				learningStepsMinutes: Type.Optional(Type.Array(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1440 }))),
+				relearningStepsMinutes: Type.Optional(Type.Array(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1440 }))),
+			}, { additionalProperties: false }),
+			apply: Type.Optional(Type.Boolean({ description: "Default false previews without writing. Set true to save requested changes." })),
+		}),
+		async execute(_id, params) {
+			try {
+				setConnectUrl(loadConfig().connectUrl);
+				const result = await setStudyPlan(params.deck, params.changes, params.apply ?? false);
+				return ok(JSON.stringify(result, null, 2), result);
+			} catch (e) { return { ...ok(errText(e)), isError: true }; }
+		},
+	});
+
 	// ------------------------------------------------------------- read tools
 
 	pi.registerTool({

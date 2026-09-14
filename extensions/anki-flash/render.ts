@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	renderImage,
+	wrapTextWithAnsi,
 	getCapabilities,
 	getPngDimensions,
 	getJpegDimensions,
@@ -90,26 +91,28 @@ export function visibleLen(s: string): number {
 
 /** Wrap text to lines each no wider than `width` terminal cells (CJK-aware). */
 export function wrap(text: string, width: number): string[] {
-	if (visibleLen(text) <= width) return [text];
-	const out: string[] = [];
-	let cur = "";
-	let curW = 0;
-	for (const ch of text) {
-		const w = charWidth(ch);
-		if (curW + w > width && cur.length > 0) {
-			out.push(cur);
-			cur = "";
-			curW = 0;
-		}
-		cur += ch;
-		curW += w;
-	}
-	if (cur.length) out.push(cur);
-	return out;
+	// Image protocol payloads must never be split or interpreted as text.
+	if (text.includes("\x1b_G") || text.includes("\x1bPq") || text.includes("\x1b]1337;")) return [text];
+	return wrapTextWithAnsi(text, Math.max(1, width));
 }
 
 export function wrapLines(lines: string[], width: number): string[] {
-	return lines.flatMap((l) => wrap(l, Math.max(20, width)));
+	return lines.flatMap((line) => wrap(line, width));
+}
+
+/** The standard Anki back contains FrontSide followed by <hr id=answer>. */
+export function answerOnly(question: string, answer: string): string {
+	const separator = /<hr\b[^>]*\bid\s*=\s*(?:"answer"|'answer'|answer(?=\s|\/?>))[^>]*>/i.exec(answer);
+	if (!separator) return answer;
+	const front = answer.slice(0, separator.index);
+	// Only remove a known repeated front; custom backs/cloze answers remain intact.
+	if (stripHtml(front).join("\n") !== stripHtml(question).join("\n")) return answer;
+	return answer.slice(separator.index + separator[0].length);
+}
+
+/** Minimal inline emphasis for Markdown authored notes, after HTML extraction. */
+export function styleCardLine(line: string): string {
+	return line.replace(/\*\*([^*]+)\*\*/g, "\x1b[1m$1\x1b[22m").replace(/^[-*] /, "• ");
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +195,7 @@ export async function renderCard(
 	answerHtml: string,
 	config: AnkiFlashConfig,
 ): Promise<CardRenderResult> {
+	answerHtml = answerOnly(questionHtml, answerHtml);
 	const tQ = textLines(questionHtml);
 	const tA = textLines(answerHtml);
 	const imgQ = await renderFirstImage(questionHtml, config);

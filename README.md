@@ -1,6 +1,6 @@
 # pi-anki-flash
 
-English | [简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md) | [中文完整使用指南](docs/usage.zh-CN.md)
 
 An Anki client and conversational card-authoring workflow for the
 [Pi coding agent](https://pi.dev/). Review cards without leaving the terminal,
@@ -20,6 +20,7 @@ real scheduler and sync normally through AnkiWeb.
 - Use Basic, Cloze, Markdown, and custom note types through their real named fields.
 - Review and grade due cards in a terminal overlay backed by Anki's scheduler.
 - Browse cards, inspect due counts, and run a read-only FSRS workload simulation.
+- Read and update one deck's desired retention, daily limits, and learning steps from chat.
 
 ## Requirements
 
@@ -109,6 +110,11 @@ the most due cards.
 Long cards are capped at 30 image rows and 60 text lines per section. Open the
 card in Anki when the overlay reports truncated content.
 
+The header shows new, learning, review, and total counts plus the current card
+state. After revealing the answer, each rating displays Anki's next interval.
+These rows can be toggled with `review.showCounts`, `review.showCardState`, and
+`review.showNextReviews`.
+
 ## Commands
 
 | Command | Purpose |
@@ -133,6 +139,9 @@ anki_delete_notes     anki_suspend_cards     anki_set_config
 anki_simulate_retention
 ```
 
+It also receives `anki_get_study_plan` and `anki_set_study_plan` for real deck
+scheduling settings.
+
 ## Configuration
 
 Settings live under `ankiFlash` in `~/.pi/agent/settings.json` and can also be
@@ -146,7 +155,7 @@ changed with `/anki-config` or `anki_set_config`:
     "deckPriority": ["Languages", "AIInfra"],
     "autoOpen": { "enabled": false, "cooldownMin": 30, "onlyWhenDue": true },
     "media": { "playAudio": true, "renderImages": true, "maxImageWidthCells": 40, "maxImageHeightCells": 30 },
-    "review": { "allowBrowsingInModal": true },
+    "review": { "allowBrowsingInModal": true, "showCounts": true, "showCardState": true, "showNextReviews": true },
     "sim": { "retentions": [0.8, 0.85, 0.9, 0.95], "historyDays": 30 }
   }
 }
@@ -162,6 +171,26 @@ inversion `I(S, DR) = S × (DR⁻² − 1) × 81/19`. It treats estimated stabil
 unchanged, adds learning cards as fixed workload, and reports expected daily
 reviews. It never modifies Anki's scheduler.
 
+## Deck study plans in chat
+
+The agent can inspect and update the real Anki scheduling preset for one deck:
+
+```text
+查看 AIInfra 的复习策略，以及哪些牌组共用这个预设。
+把 AIInfra 的 FSRS 目标保留率设为 90%，每天新卡 10 张，复习上限 200 张。
+先预览把 AIInfra 的目标保留率改成 95%，不要保存。
+```
+
+Supported settings are desired retention, preset new/review daily limits, and
+learning/relearning steps. Shared and Default presets are cloned before the
+named deck is changed; private presets are updated in place. Writes are read
+back and verified.
+
+FSRS must already be enabled in Anki. The extension does not enable FSRS,
+optimize its weights, reschedule existing cards, or assign the new preset to
+subdecks. See the [Chinese usage guide](docs/usage.zh-CN.md#在对话中设置单个牌组的学习计划)
+for examples and exact scope.
+
 ## Development
 
 ```bash
@@ -169,12 +198,14 @@ pi -e ./extensions/anki-flash/index.ts
 npm test
 PI_ANKI_LIVE=1 npm test
 node tests/rpc-smoke.mjs
+npx tsc --noEmit
 ```
 
 - `npm test` uses mocked Anki responses and Pi's actual extension loader.
 - `PI_ANKI_LIVE=1 npm test` discovers and preflights note types against a running Anki instance without writing notes.
 - `node tests/rpc-smoke.mjs` exercises automatic/manual selection, revision, preview, and cancellation with the configured Pi model. It never approves a write.
 - Set `PI_PACKAGE_DIR` if Pi is installed outside the standard global Node path.
+- `npx tsc --noEmit` checks the extension TypeScript.
 
 ## License
 

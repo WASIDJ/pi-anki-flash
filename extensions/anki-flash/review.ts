@@ -10,6 +10,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { matchesKey, visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import {
+	getDeckStats,
+	type DeckStat,
+	type CardInfo,
 	findCards,
 	cardsInfo,
 	guiDeckReview,
@@ -22,7 +25,7 @@ import {
 	addNote,
 	type GuiCard,
 } from "./connect";
-import { renderCard, wrapLines, playSounds, type CardRenderResult } from "./render";
+import { renderCard, wrapLines, styleCardLine, playSounds, type CardRenderResult } from "./render";
 import type { AnkiFlashConfig } from "./config";
 
 type View = "loading" | "review" | "browse" | "add" | "done" | "error";
@@ -49,6 +52,8 @@ export class FlashcardComponent {
 	private showAnswer = false;
 	private rendered: CardRenderResult | null = null;
 	private statusFlash = "";
+	private deckStats: DeckStat | null = null;
+	private cardInfo: CardInfo | null = null;
 
 	// browse state
 	private browseList: BrowseEntry[] = [];
@@ -96,6 +101,7 @@ export class FlashcardComponent {
 
 	private async loadCurrentCard(): Promise<void> {
 		this.card = await guiCurrentCard();
+		await this.refreshMetadata();
 		if (!this.card) {
 			this.view = "done";
 			return;
@@ -104,6 +110,17 @@ export class FlashcardComponent {
 		this.showAnswer = false;
 		this.rendered = await renderCard(this.card.question, this.card.answer, this.config);
 		playSounds(this.card.question, this.pi, this.config);
+	}
+
+	private async refreshMetadata(): Promise<void> {
+		// Optional metadata must never prevent reviewing; discard stale values on failure.
+		const [stats, info] = await Promise.allSettled([
+			getDeckStats([this.addDeck]),
+			this.card ? cardsInfo([this.card.cardId]) : Promise.resolve([]),
+		]);
+		this.deckStats = stats.status === "fulfilled"
+			? Object.values(stats.value).find((s) => s.name === this.addDeck) ?? null : null;
+		this.cardInfo = info.status === "fulfilled" ? info.value[0] ?? null : null;
 	}
 
 	private fail(e: unknown): void {
@@ -164,10 +181,17 @@ export class FlashcardComponent {
 		if (this.busy || !this.card) return;
 
 		if (data === " ") {
-			this.showAnswer = true;
-			void guiShowAnswer().catch(() => {});
-			playSounds(this.card.answer, this.pi, this.config);
-			this.repaint();
+			void this.runBusy(async () => {
+				await guiShowAnswer();
+				const current = await guiCurrentCard();
+				if (!current || current.cardId !== this.card!.cardId) {
+					await this.loadCurrentCard();
+					return;
+				}
+				this.card = current;
+				this.showAnswer = true;
+				playSounds(this.card.answer, this.pi, this.config);
+			});
 			return;
 		}
 
@@ -189,6 +213,7 @@ export class FlashcardComponent {
 			void this.runBusy(async () => {
 				const states = await toggleSuspend([this.card!.cardId]);
 				this.flash(states[0] ? "card suspended" : "card unsuspended");
+				await this.loadCurrentCard();
 			});
 			return;
 		}
@@ -323,6 +348,7 @@ export class FlashcardComponent {
 				tags: ["pi"],
 			});
 			this.flash(`card added to ${this.addDeck}`);
+			await this.refreshMetadata();
 		} catch (e) {
 			this.flash(`add failed: ${e instanceof Error ? e.message : e}`);
 		}
@@ -355,10 +381,10 @@ export class FlashcardComponent {
 		const bold = (s: string) => `\x1b[1m${s}\x1b[22m`;
 		const gold = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
-		const boxWidth = Math.max(20, Math.min(width - 10, 86));
+		const boxWidth = Math.max(1, Math.min(width - 6, 86));
 		const pad = (content: string) => {
 			// Escape-sequence lines (images) have no width to pad.
-			const isImageSeq = content.includes("\x1b_G") || content.includes("\x1bPq");
+			const isImageSeq = content.includes("\x1b_G") || content.includes("\x1bPq") || content.includes("\x1b]1337;");
 			if (isImageSeq) return ` ${dim("│")} ${content} ${dim("│")}`;
 			const safe = truncateToWidth(content, boxWidth);
 			const w = visibleWidth(safe);
@@ -373,6 +399,17 @@ export class FlashcardComponent {
 		const modeLabel =
 			this.view === "browse" ? "BROWSE" : this.view === "add" ? "ADD" : "REVIEW";
 		lines.push(pad(`${bold(accent("ANKI"))} ${dim("·")} ${gold(modeLabel)}${deck ? ` ${dim("·")} ${gold(deck)}` : ""}`));
+		if (this.config.review.showCounts && this.view !== "loading") {
+			const s = this.deckStats;
+			const summary = s
+				? `新卡 ${s.new_count} · 学习中 ${s.learn_count} · 待复习 ${s.review_count} · 牌组总数 ${s.total_in_deck}`
+				: "张数暂不可用";
+			for (const line of wrapLines([summary], boxWidth)) lines.push(pad(line));
+		}
+		if (this.config.review.showCardState && this.view === "review" && this.card) {
+			const state = this.cardInfo ? ["新卡", "学习中", "复习", "重新学习"][this.cardInfo.type] ?? "未知" : "未知";
+			for (const line of wrapLines([`状态：${state} · ${this.showAnswer ? "请选择熟悉程度" : "回忆后按空格"}`], boxWidth)) lines.push(pad(dim(line)));
+		}
 		lines.push(border("├", "┤"));
 
 		if (this.view === "loading") {
@@ -392,9 +429,11 @@ export class FlashcardComponent {
 			const r = this.browseRendered;
 			lines.push(pad(dim(`card ${this.browseIdx + 1}/${this.browseList.length}`)));
 			if (r) {
-				for (const l of wrapLines(r.questionLines, boxWidth - 2)) lines.push(pad(l));
-				lines.push(pad(dim("─".repeat(Math.min(boxWidth - 2, 24)))));
-				for (const l of wrapLines(r.answerLines, boxWidth - 2)) lines.push(pad(dim(l)));
+				lines.push(pad(dim("问题")));
+				for (const l of wrapLines(r.questionLines.map(styleCardLine), boxWidth - 2)) lines.push(pad(l));
+				lines.push(pad(""));
+				lines.push(pad(accent("答案")));
+				for (const l of wrapLines(r.answerLines.map(styleCardLine), boxWidth - 2)) lines.push(pad(l));
 				if (r.truncated) lines.push(pad(gold("…truncated — see full card in Anki/anki-tui")));
 			} else {
 				lines.push(pad(dim("Loading…")));
@@ -402,10 +441,12 @@ export class FlashcardComponent {
 		} else if (this.view === "review" && this.card) {
 			const r = this.rendered;
 			if (r) {
-				for (const l of wrapLines(r.questionLines, boxWidth - 2)) lines.push(pad(l));
+				lines.push(pad(dim("问题")));
+				for (const l of wrapLines(r.questionLines.map(styleCardLine), boxWidth - 2)) lines.push(pad(l));
 				if (this.showAnswer) {
-					lines.push(pad(dim("─".repeat(Math.min(boxWidth - 2, 24)))));
-					for (const l of wrapLines(r.answerLines, boxWidth - 2)) lines.push(pad(dim(l)));
+					lines.push(pad(""));
+				lines.push(pad(accent("答案")));
+					for (const l of wrapLines(r.answerLines.map(styleCardLine), boxWidth - 2)) lines.push(pad(l));
 					if (r.truncated) lines.push(pad(gold("…truncated — see full card in Anki/anki-tui")));
 				}
 			} else {
@@ -417,11 +458,28 @@ export class FlashcardComponent {
 		if (this.busy) lines.push(pad(dim("working…")));
 		if (this.statusFlash) lines.push(pad(gold(this.statusFlash)));
 
-		lines.push(pad(this.footer(bold, EASE_LABELS, this.card?.buttons ?? [1, 2, 3, 4])));
+		lines.push(border("├", "┤"));
+		if (this.view === "review" && this.showAnswer) {
+			const labels: Record<number, string> = { 1: "重来", 2: "困难", 3: "良好", 4: "简单" };
+			const colors: Record<number, number> = { 1: 31, 2: 33, 3: 32, 4: 36 };
+			let row = "";
+			for (const [i, button] of (this.card?.buttons ?? [1, 2, 3, 4]).entries()) {
+				const interval = this.config.review.showNextReviews ? this.card?.nextReviews?.[i] : undefined;
+				const item = `\x1b[${colors[button] ?? 37}m${bold(`${button} ${labels[button] ?? "?"}`)}${interval ? `  ${interval}` : ""}\x1b[0m`;
+				if (row && visibleWidth(row) + 4 + visibleWidth(item) > boxWidth) {
+					lines.push(pad(row)); row = "";
+				}
+				row += (row ? "    " : "") + item;
+			}
+			if (row) for (const line of wrapLines([row], boxWidth)) lines.push(pad(line));
+			for (const line of wrapLines(["u 撤销 · r 音频 · s 暂停 · Esc 退出"], boxWidth)) lines.push(pad(dim(line)));
+		} else {
+			for (const line of wrapLines([this.footer(bold, EASE_LABELS, this.card?.buttons ?? [1, 2, 3, 4])], boxWidth)) lines.push(pad(line));
+		}
 		lines.push(border("╰", "╯"));
 		// Absolute safety: never exceed the allotted width regardless of width math.
 		return lines.map((l) =>
-			l.includes("\x1b_G") || l.includes("\x1bPq") || visibleWidth(l) <= width ? l : truncateToWidth(l, width - 1),
+			l.includes("\x1b_G") || l.includes("\x1bPq") || l.includes("\x1b]1337;") || visibleWidth(l) <= width ? l : truncateToWidth(l, width - 1),
 		);
 	}
 
@@ -431,7 +489,10 @@ export class FlashcardComponent {
 			case "review":
 				if (!this.showAnswer) return `${k("Space")} reveal · ${k("b")} browse · ${k("a")} add · ${k("Esc")} close`;
 				return (
-					buttons.map((b) => `${k(String(b))} ${labels[b] ?? "?"}`).join(" · ") +
+					buttons.map((b, i) => {
+						const interval = this.config.review.showNextReviews ? this.card?.nextReviews?.[i] : undefined;
+						return `${k(String(b))} ${labels[b] ?? "?"}${interval ? ` (${interval})` : ""}`;
+					}).join(" · ") +
 					` · ${k("u")} undo · ${k("Esc")} close`
 				);
 			case "browse":

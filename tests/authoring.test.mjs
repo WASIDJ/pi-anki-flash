@@ -122,7 +122,14 @@ test("long HTML cards keep template, tags and revision visible while scrolling",
 });
 
 test("real Pi loader registers the tool and automatic/manual commands", async () => {
-	assert.equal(extension.tools.size, 10);
+	assert.deepEqual(
+		[...extension.tools.keys()].sort(),
+		[
+			"anki_add_note", "anki_card_info", "anki_deck_stats", "anki_delete_notes",
+			"anki_find_cards", "anki_get_study_plan", "anki_list_decks", "anki_note_context",
+			"anki_set_config", "anki_set_study_plan", "anki_simulate_retention", "anki_suspend_cards",
+		].sort(),
+	);
 	const messages = [];
 	loaded.runtime.sendUserMessage = (text) => messages.push(text);
 	await extension.commands.get("make-card").handler("manual 最近的短语", {});
