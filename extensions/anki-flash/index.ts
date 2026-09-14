@@ -6,7 +6,6 @@
  *   /anki-add "front | back" [deck]      add a Basic card
  *   /anki-browse <query>                 search cards, results in chat
  *   /anki-stats [deck]                   deck statistics
- *   /anki-decks                          list decks with due counts
  *   /anki-config [key] [value]           show/change config
  *   /anki-sim [deck]                     FSRS retention simulation
  *
@@ -50,8 +49,30 @@ async function openOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promise<voi
 		ctx.ui.notify("AnkiConnect unreachable — start Anki desktop first", "error");
 		return;
 	}
+	let deck: string;
+	try {
+		const decks = await deckNames();
+		const stats = await getDeckStats(decks);
+		const choices = Object.values(stats)
+			.map((s) => ({
+				deck: s.name,
+				due: s.new_count + s.learn_count + s.review_count,
+				label: `${s.name}  ·  新卡 ${s.new_count}  学习中 ${s.learn_count}  待复习 ${s.review_count}`,
+			}))
+			.sort((a, b) => b.due - a.due || a.deck.localeCompare(b.deck));
+		if (choices.length === 0) {
+			ctx.ui.notify("Anki 中没有可用牌组", "error");
+			return;
+		}
+		const selected = await ctx.ui.select("选择要复习的 Anki 牌组", choices.map((choice) => choice.label));
+		if (!selected) return;
+		deck = choices.find((choice) => choice.label === selected)!.deck;
+	} catch (e) {
+		ctx.ui.notify(`读取牌组失败：${e instanceof Error ? e.message : e}`, "error");
+		return;
+	}
 	await ctx.ui.custom((tui, _theme, _kb, done) => {
-		const component = new FlashcardComponent(pi, tui, () => done(undefined), config, null);
+		const component = new FlashcardComponent(pi, tui, () => done(undefined), config, deck);
 		void component.start();
 		return component;
 	});
@@ -78,12 +99,8 @@ export default function (pi: ExtensionAPI) {
 	// ------------------------------------------------------------ commands
 
 	pi.registerCommand("anki", {
-		description: "Continue the review currently open in Anki",
-		handler: async (args, ctx) => {
-			if (args.trim()) {
-				ctx.ui.notify("请直接在 Anki 中切换牌组并开始复习，然后运行 /anki", "error");
-				return;
-			}
+		description: "Choose a deck, switch Anki to it, and review",
+		handler: async (_args, ctx) => {
 			await openOverlay(pi, ctx);
 		},
 	});
@@ -161,23 +178,6 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(lines.join("\n") || "(no decks)", "info");
 			} catch (e) {
 				ctx.ui.notify(`stats failed: ${e instanceof Error ? e.message : e}`, "error");
-			}
-		},
-	});
-
-	pi.registerCommand("anki-decks", {
-		description: "List decks with due counts",
-		handler: async (_args, ctx) => {
-			reloadConfig();
-			try {
-				const decks = await deckNames();
-				const stats = await getDeckStats(decks);
-				const lines = Object.values(stats).map(
-					(s) => `${s.name.padEnd(24)} due ${String(s.new_count + s.learn_count + s.review_count).padStart(4)} / ${s.total_in_deck}`,
-				);
-				ctx.ui.notify(lines.join("\n") || "(no decks)", "info");
-			} catch (e) {
-				ctx.ui.notify(`decks failed: ${e instanceof Error ? e.message : e}`, "error");
 			}
 		},
 	});

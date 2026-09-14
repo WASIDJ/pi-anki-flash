@@ -92,9 +92,9 @@ Other tool permissions remain independent.
 
 ## Review cards
 
-Choose a deck and start reviewing in Anki first, then open the overlay with `/anki`
-or `Ctrl+Shift+K`. Pi continues the card already shown in Anki and does not switch
-decks.
+Open `/anki` or press `Ctrl+Shift+K`, then choose a deck from the picker. Pi switches
+Anki to that deck and opens the review overlay. The picker includes new, learning,
+and review counts for every deck.
 
 | Key | Action |
 | --- | --- |
@@ -121,11 +121,10 @@ These rows can be toggled with `review.showCounts`, `review.showCardState`, and
 | --- | --- |
 | `/make-card [instructions]` | Generate and confirm cards from the conversation |
 | `/make-card manual [instructions]` | Choose the note type before generation |
-| `/anki` | Continue the current Anki review |
+| `/anki` | Choose a deck and open the review overlay |
 | `/anki-add "front \| back" [deck]` | Directly add a simple Basic note |
 | `/anki-browse <query>` | Search with Anki search syntax |
 | `/anki-stats [deck]` | Show new, learning, and review counts |
-| `/anki-decks` | Read-only list of decks and due totals |
 | `/anki-newdeck <name>` | Create a deck |
 | `/anki-config [key] [value]` | Read or change extension settings |
 | `/anki-sim [deck]` | Estimate FSRS workload at several retention targets |

@@ -15,6 +15,7 @@ import {
 	type CardInfo,
 	findCards,
 	cardsInfo,
+	guiDeckReview,
 	guiCurrentCard,
 	guiShowAnswer,
 	guiAnswerCard,
@@ -82,12 +83,10 @@ export class FlashcardComponent {
 
 	async start(): Promise<void> {
 		try {
-			this.card = await guiCurrentCard();
-			if (!this.card) {
-				throw new Error("请先在 Anki 中选择牌组并开始复习，再打开 Pi 复习界面");
-			}
-			this.addDeck = this.card.deckName;
-			await this.finishLoadingCurrentCard();
+			if (!this.deckArg) throw new Error("No review deck selected");
+			this.addDeck = this.deckArg;
+			await guiDeckReview(this.deckArg);
+			await this.loadCurrentCard();
 		} catch (e) {
 			this.fail(e);
 		}
