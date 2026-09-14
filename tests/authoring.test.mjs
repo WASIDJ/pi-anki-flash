@@ -106,6 +106,9 @@ test("natural-language revision returns feedback and draft without writing", asy
 	assert.equal(result.status, "needs_revision");
 	assert.equal(result.feedback, "答案缩短，保留中文并增加一个例子");
 	assert.equal(result.draft.fields.Front, "Question");
+	assert.equal(result.draft.deck, "English");
+	assert.equal(result.draft.model, "Basic");
+	assert.equal(result.draft.revision, "答案缩短，保留中文并增加一个例子");
 	assert.equal(writes.length, 0);
 });
 
@@ -186,12 +189,25 @@ test("malformed edits retain the draft and allow retry", async () => {
 	assert.equal(writes[0].fields.Front, "Question");
 });
 
-test("template switch requests semantic regeneration without writing", async () => {
-	const result = resultData(await invoke("anki_add_note", basic, uiContext({ keys: ["t"], selections: ["Cloze"] })));
+test("deck and template switches persist in the continuation draft", async () => {
+	const result = resultData(await invoke("anki_add_note", basic, uiContext({
+		keys: ["d", "t"], selections: ["Default", "Cloze"],
+	})));
 	assert.equal(result.status, "needs_revision");
 	assert.deepEqual(result.template.fields, ["Text", "Extra"]);
-	assert.equal(result.draft.fields.Front, "Question");
+	assert.equal(result.draft.deck, "Default");
+	assert.equal(result.draft.model, "Cloze");
+	assert.deepEqual(result.draft.tags, ["pi", "phrase"]);
+	assert.deepEqual(result.sourceFields, { Front: "Question", Back: "Answer" });
 	assert.equal(writes.length, 0);
+
+	await invoke("anki_add_note", {
+		...result.draft,
+		fields: { Text: "A {{c1::Question}}", Extra: "Answer" },
+	}, uiContext({ keys: ["y"] }));
+	assert.equal(writes[0].deckName, "Default");
+	assert.equal(writes[0].modelName, "Cloze");
+	assert.deepEqual(writes[0].tags, ["pi", "phrase"]);
 });
 
 test("automatic Cloze selection and named custom fields survive to Anki", async () => {

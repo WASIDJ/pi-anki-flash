@@ -202,8 +202,8 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 			"Use anki_add_note when the user asks to turn material into flashcards or to remember something as a card.",
 			"Call this tool directly with a draft: its UI provides the preview and approval. Supply relevant suggested tags; pi is added automatically.",
 			"Use named fields matching anki_note_context, including {{c1::answer}} in a cloze field for Cloze templates. For automatic selection, choose the best available model for the content.",
-			"Create multiple cards sequentially so each gets its own review. If cancelled, do not retry that draft. If needs_revision, regenerate for the selected template and call again for confirmation.",
-			"When needs_revision includes feedback, apply that user feedback to the returned draft and pass the exact feedback in revision on your next anki_add_note call. Preserve prior deck and tags unless asked to change them.",
+			"Create multiple cards sequentially so each gets its own review. If cancelled, do not retry that draft. If needs_revision, call again using the returned draft state and instruction.",
+			"The returned needs_revision draft uses anki_add_note parameter names and is authoritative. Preserve its deck, model, tags, and revision. For a template switch, regenerate sourceFields into the selected template's named fields without changing the other draft properties.",
 			"Report success only for status=created. For an uncertain write/network error, search for the note before retrying to avoid duplicates.",
 		],
 		parameters: Type.Object({

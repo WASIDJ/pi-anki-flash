@@ -48,6 +48,16 @@ export function normalizeTags(tags: string[]): string[] {
 	return [...new Set(["pi", ...tags.flatMap((t) => t.trim().split(/[\s,，]+/)).filter(Boolean)])];
 }
 
+function continuationDraft(note: AddNoteParams, revision?: string): NoteDraft {
+	return {
+		deck: note.deckName,
+		model: note.modelName,
+		fields: { ...note.fields },
+		tags: [...(note.tags ?? [])],
+		...(revision ? { revision } : {}),
+	};
+}
+
 async function selectDeck(ctx: ExtensionContext, signal?: AbortSignal): Promise<string | undefined> {
 	while (!signal?.aborted) {
 		const decks = await deckNames();
@@ -212,8 +222,8 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 			const feedback = await ctx.ui.editor("你想怎么改？Pi 会按建议重写，再给你确认", draft.revision ?? "");
 			if (signal?.aborted) return { status: "cancelled", draft: note };
 			if (!feedback?.trim()) continue;
-			return { status: "needs_revision", template, draft: note, feedback: feedback.trim(),
-				instruction: "Revise this draft according to feedback. Preserve its deck and tags unless the feedback changes them. Call anki_add_note again with the revised fields and revision=the exact feedback so the user sees their request in the new preview. A new y confirmation is required." };
+			return { status: "needs_revision", template, draft: continuationDraft(note, feedback.trim()), feedback: feedback.trim(),
+				instruction: "Revise draft.fields according to feedback, then call anki_add_note with every property from draft. Preserve draft.deck, draft.model, and draft.tags unless the feedback explicitly changes them. A new y confirmation is required." };
 		}
 		if (choice === "g") {
 			const tags = await ctx.ui.editor("修改标签（空格或逗号分隔；pi 自动保留）", note.tags!.join(" "));
@@ -227,8 +237,14 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 			const selected = await ctx.ui.select("选择模板（Anki 笔记类型）", context.templates.map((t) => t.name), { signal });
 			if (!selected || selected === template.name) continue;
 			// Return to the agent for semantic regeneration; never silently move fields by position.
-			return { status: "needs_revision", template: context.templates.find((t) => t.name === selected), draft: note,
-				instruction: "Regenerate this draft using the selected template's named fields, then call anki_add_note for a new preview." };
+			const selectedTemplate = context.templates.find((t) => t.name === selected)!;
+			return {
+				status: "needs_revision",
+				template: selectedTemplate,
+				draft: { deck: note.deckName, model: selected, tags: [...(note.tags ?? [])] },
+				sourceFields: { ...note.fields },
+				instruction: "Regenerate sourceFields into template.fields, then call anki_add_note with draft.deck, draft.model, draft.tags, and the regenerated named fields. Do not change the selected deck, model, or tags. A new preview and y confirmation are required.",
+			};
 		}
 	}
 	return { status: "cancelled", draft: note };
