@@ -59,7 +59,7 @@ function continuationDraft(note: AddNoteParams, source: NoteDraft, revision?: st
 		model: note.modelName,
 		fields: { ...note.fields },
 		tags: [...(note.tags ?? [])],
-		...(source.guided ? { guided: true } : {}),
+		...(source.guided !== undefined ? { guided: source.guided } : {}),
 		...(source.chain ? { chain: structuredClone(source.chain) } : {}),
 		...(revision ? { revision } : {}),
 	};
@@ -74,7 +74,7 @@ const NEXT_CARD_DIRECTIONS = [
 	["后果与影响", "追问这个概念会导致什么结果"],
 	["原文下一个重点", "连接原始材料中尚未覆盖的相关重点"],
 ] as const;
-const CUSTOM_DIRECTION = "自定义问题或方向…";
+const CUSTOM_DIRECTION = "自定义下一张卡…";
 const FINISH_CHAIN = "结束制卡";
 
 async function chooseNextCardDirection(ctx: ExtensionContext, signal?: AbortSignal): Promise<string | undefined> {
@@ -82,10 +82,17 @@ async function chooseNextCardDirection(ctx: ExtensionContext, signal?: AbortSign
 	const selected = await ctx.ui.select("下一张卡想探索哪个方向？", options, { signal });
 	if (!selected || selected === FINISH_CHAIN || signal?.aborted) return undefined;
 	if (selected === CUSTOM_DIRECTION) {
-		const custom = await ctx.ui.editor("输入下一张卡的问题或探索方向", "");
-		return custom?.trim() || undefined;
+		return askCustomNextCard(ctx);
 	}
 	return NEXT_CARD_DIRECTIONS.find(([label]) => label === selected)?.[1];
+}
+
+async function askCustomNextCard(ctx: ExtensionContext): Promise<string | undefined> {
+	const custom = await ctx.ui.editor(
+		"输入下一张卡的问题、补充材料或探索方向",
+		"例如：问问什么是张量，它的英文是什么？\n也可以在这里粘贴下一张卡要依据的补充材料。",
+	);
+	return custom?.trim() || undefined;
 }
 
 async function selectDeck(ctx: ExtensionContext, signal?: AbortSignal): Promise<string | undefined> {
@@ -140,9 +147,9 @@ function validateFields(fields: Record<string, string>, template: NoteTemplate):
 	}
 }
 
-type Choice = "y" | "n" | "e" | "t" | "g" | "d" | "r";
+type Choice = "y" | "c" | "n" | "e" | "t" | "g" | "d" | "r";
 const actions: Record<Choice, string> = {
-	y: "y · 保存", n: "n · 跳过", e: "e · 修改字段", t: "t · 换模板", g: "g · 修改标签", d: "d · 换牌组",
+	y: "y · 保存", c: "c · 保存并自定义下一张", n: "n · 跳过", e: "e · 修改字段", t: "t · 换模板", g: "g · 修改标签", d: "d · 换牌组",
 	r: "r · 提修改建议，让 Pi 重写",
 };
 
@@ -180,7 +187,8 @@ export async function previewChoice(ctx: ExtensionContext, note: AddNoteParams, 
 				const rule = theme.fg("borderMuted", "─".repeat(contentWidth));
 				const header = [rule, ...render(theme.fg("accent", theme.bold("Anki · 卡片预览"))), "", ...render(metadata), rule];
 				const footer = [rule,
-					...render(theme.fg("success", "[y] 保存") + "   [n/Esc] 跳过   [r] 提修改建议，让 Pi 重写"),
+					...render(theme.fg("success", "[y] 保存并选择下一方向") + "   " + theme.fg("success", "[c] 保存并自定义下一张")),
+					...render("[n/Esc] 跳过   [r] 提修改建议，让 Pi 重写"),
 					...render("[e] 直接编辑字段   [t] 模板   [g] 标签   [d] 牌组"),
 					...render(theme.fg("muted", "↑/↓ 或 j/k 滚动正文 · 文字预览，保存保留原始格式")),
 				];
@@ -227,14 +235,16 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 	while (!signal?.aborted) {
 		const choice = await previewChoice(ctx, note, signal, draft.revision);
 		if (choice === "n" || signal?.aborted) return { status: "cancelled", draft: note };
-		if (choice === "y") {
+		if (choice === "y" || choice === "c") {
 			validateFields(note.fields, template);
 			const [valid] = await canAddNotes([note]);
 			if (!valid) throw new Error("Anki rejected this draft (duplicate or invalid fields). No note was added.");
 			if (signal?.aborted) return { status: "cancelled", draft: note };
 			const noteId = await addNote(note);
-			if (!draft.guided || signal?.aborted) return { status: "created", noteId, note };
-			const direction = await chooseNextCardDirection(ctx, signal);
+			if (draft.guided === false || signal?.aborted) return { status: "created", noteId, note };
+			const direction = choice === "c"
+				? await askCustomNextCard(ctx)
+				: await chooseNextCardDirection(ctx, signal);
 			if (!direction) return { status: "created", noteId, note };
 			const coveredDirections = [...(draft.chain?.coveredDirections ?? []), direction];
 			return {
@@ -251,7 +261,7 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 						guided: true,
 						chain: { anchor: draft.chain?.anchor, coveredDirections },
 					},
-					instruction: "Generate exactly one next card from the original conversation or source, following direction. Connect it semantically to previousCard while keeping its question self-contained. Test one new, meaningful relationship and avoid repeating coveredDirections. Call anki_add_note with every property from draft plus the new fields.",
+					instruction: "Generate exactly one next card from the original conversation/source and the user's direction. The direction is authoritative: when it is phrased as a question, use that question as the front unless the selected template requires a semantic adaptation; when it includes supplemental material, use it as source evidence. Connect the card semantically to previousCard while keeping it self-contained. Call anki_add_note with every property from draft plus the new fields.",
 				},
 			};
 		}
@@ -293,7 +303,7 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 				template: selectedTemplate,
 				draft: {
 					deck: note.deckName, model: selected, tags: [...(note.tags ?? [])],
-					...(draft.guided ? { guided: true } : {}),
+					...(draft.guided !== undefined ? { guided: draft.guided } : {}),
 					...(draft.chain ? { chain: structuredClone(draft.chain) } : {}),
 				},
 				sourceFields: { ...note.fields },

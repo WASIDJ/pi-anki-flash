@@ -15,11 +15,11 @@ Choose a template suitable for the material when none was specified: question/an
 
 Call `anki_add_note` immediately with the draft, model, fields, suggested tags, `guided: true`, and a short `chain.anchor` naming the core concept. Its preview provides y/n confirmation, editing and template/deck switching. This is the review gate; an extra chat approval turn is unnecessary.
 
-Handle the result: `cancelled` means stop without retrying; `needs_revision` means regenerate from the returned draft and call the tool again. After `created`, inspect `nextCard`. When present, generate exactly one card from the original source using its `direction`, `previousCard`, and `draft`, then call `anki_add_note` again without another chat question. Keep the new question self-contained, test a new relationship, and preserve the returned deck, model, tags, chain and guided mode. When `nextCard` is absent, the user chose to finish. On a write/network error, check for an existing note before retrying.
+Handle the result: `cancelled` means stop without retrying; `needs_revision` means regenerate from the returned draft and call the tool again. After `created`, inspect `nextCard`. When present, generate exactly one card from the original source using its `direction`, `previousCard`, and `draft`, then call `anki_add_note` again without another chat question. Treat a custom direction as authoritative: use an explicit question as the next front, adapting only for the selected template, and treat pasted material as additional source evidence. Keep the card self-contained and preserve the returned deck, model, tags, chain and guided mode. When `nextCard` is absent, the user chose to finish. On a write/network error, check for an existing note before retrying.
 
 ## 2. Authoring rules (reject bad drafts yourself)
 
-- **One fact per card.** If the back has two ideas, split it.
+- **One retrieval target per card.** Split independent ideas, while preserving a user's explicit compound question when its parts form one meaningful unit.
 - **The back must be short enough to recite** — one word, one number,
   or one sentence (≤ ~25 Chinese chars / ~15 English words for knowledge
   cards). Paragraphs belong in the vault, not on a card.

@@ -183,9 +183,26 @@ test("guided authoring returns the selected relationship and preserved next-card
 
 test("guided authoring accepts a custom next-card direction", async () => {
 	const result = resultData(await invoke("anki_add_note", { ...basic, guided: true }, uiContext({
-		keys: ["y"], selections: ["自定义问题或方向…"], edits: ["连接到启发式偏差"],
+		keys: ["y"], selections: ["自定义下一张卡…"], edits: ["连接到启发式偏差"],
 	})));
 	assert.equal(result.nextCard.direction, "连接到启发式偏差");
+});
+
+test("card preview exposes save-and-customize-next action", async () => {
+	const ctx = uiContext({ keys: ["n"] });
+	await invoke("anki_add_note", basic, ctx);
+	assert.match(ctx.previews[0], /\[c\].*自定义下一张/);
+});
+
+test("ordinary card authoring defaults to a custom next card without a guided flag", async () => {
+	const result = resultData(await invoke("anki_add_note", basic, uiContext({
+		keys: ["c"], edits: ["问问什么是张量，它的英文是什么？"],
+	})));
+	assert.equal(result.status, "created");
+	assert.equal(result.nextCard.direction, "问问什么是张量，它的英文是什么？");
+	assert.equal(result.nextCard.draft.deck, "English");
+	assert.equal(result.nextCard.draft.model, "Basic");
+	assert.equal(writes.length, 1);
 });
 
 test("guided authoring stops when the user chooses finish", async () => {

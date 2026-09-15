@@ -215,7 +215,7 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 			tags: Type.Optional(Type.Array(Type.String())),
 			model: Type.Optional(Type.String()),
 			revision: Type.Optional(Type.String({ description: "The user's exact revision request, when regenerating after feedback; displayed in the next preview." })),
-			guided: Type.Optional(Type.Boolean({ description: "After saving, let the user choose the relationship explored by the next card." })),
+			guided: Type.Optional(Type.Boolean({ description: "After saving, let the user choose the relationship explored by the next card. Defaults to true; set false for an explicitly requested one-off card." })),
 			chain: Type.Optional(Type.Object({
 				anchor: Type.Optional(Type.String({ description: "The core concept shared by this card chain." })),
 				coveredDirections: Type.Optional(Type.Array(Type.String())),
