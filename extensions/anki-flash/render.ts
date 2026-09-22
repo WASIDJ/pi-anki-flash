@@ -29,6 +29,7 @@ const IMG_TOKEN = "[IMG_TOKEN]";
 
 export function stripHtml(html: string): string[] {
 	return html
+		.replace(/<!--[\s\S]*?-->/g, "")
 		.replace(/\[sound:[^\]]+\]/g, "♪")
 		.replace(/<img[^>]*>/g, `\n${IMG_TOKEN}\n`)
 		.replace(/<style[^>]*>[\s\S]*?<\/style>/g, "")
@@ -190,11 +191,36 @@ export interface CardRenderResult {
 	truncated: boolean;
 }
 
+/** Anki Markdown stores its content in inert scripts for its browser renderer.
+ * Read only the requested side; never execute scripts or expose raw cloze data.
+ */
+function markdownSide(html: string, side: "question" | "answer"): string {
+	const data = new Map<string, string>();
+	for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+		const attrs = match[1];
+		if (!/\btype\s*=\s*(["'])text\/plain\1/i.test(attrs)) continue;
+		const id = /\bid\s*=\s*(["'])(data-(?:front|back|text|extra))\1/i.exec(attrs);
+		if (id) data.set(id[2].toLowerCase(), match[2].trim());
+	}
+	if (data.has("data-front") && data.has("data-back")) {
+		return data.get(side === "question" ? "data-front" : "data-back")!;
+	}
+	if (data.has("data-text")) {
+		// Preserve Anki's already-rendered cloze spans, including the active
+		// ordinal and hint. Raw Text would reveal the answer on the front.
+		const rendered = html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+		return side === "answer" ? `${rendered}\n${data.get("data-extra") ?? ""}` : rendered;
+	}
+	return html;
+}
+
 export async function renderCard(
 	questionHtml: string,
 	answerHtml: string,
 	config: AnkiFlashConfig,
 ): Promise<CardRenderResult> {
+	questionHtml = markdownSide(questionHtml, "question");
+	answerHtml = markdownSide(answerHtml, "answer");
 	answerHtml = answerOnly(questionHtml, answerHtml);
 	const tQ = textLines(questionHtml);
 	const tA = textLines(answerHtml);
@@ -211,6 +237,8 @@ export async function renderCard(
 		answerLines.push(...imgA.lines);
 	}
 	answerLines.push(...tA.lines);
+	if (questionLines.length === 0) questionLines.push("[正面无可显示内容，请在 Anki 中检查模板]");
+	if (answerLines.length === 0) answerLines.push("[背面无可显示内容，请在 Anki 中检查模板]");
 
 	const truncated = tQ.trimmed || tA.trimmed || imgQ.capped || (!sameImage && imgA.capped);
 	return { questionLines, answerLines, truncated };

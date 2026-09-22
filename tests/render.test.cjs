@@ -37,3 +37,23 @@ test('answer layout stays readable at narrow and normal widths',async()=>{
  }
  assert.match(styleCardLine('**有限理性**'),/\x1b\[1m/);
 });
+
+test('Anki Markdown script data renders each side without leaking the answer',async()=>{
+ const data='<script id="data-front" type="text/plain">Question</script><script id="data-back" type="text/plain">Secret answer</script><script type="module">render(front, back)</script>';
+ const r=await renderCard('<div class="front"></div>'+data,'<div class="back"></div>'+data,DEFAULT_CONFIG);
+ assert.deepEqual(r.questionLines,['Question']);
+ assert.deepEqual(r.answerLines,['Secret answer']);
+});
+
+test('Markdown Cloze preserves Anki masking and includes Extra only on the back',async()=>{
+ const data='<script type="text/plain" id="data-text">{{c1::Secret}}</script><script id="data-extra" type="text/plain">Explanation</script>';
+ const r=await renderCard('<!-- template comment --><div style="display:none"><span class="cloze">[hint]</span></div>'+data,'<div style="display:none"><span class="cloze">Secret</span></div>'+data,DEFAULT_CONFIG);
+ assert.deepEqual(r.questionLines,['[hint]']);
+ assert.deepEqual(r.answerLines,['Secret','Explanation']);
+});
+
+test('unsupported script-only templates show a diagnostic instead of blank cards',async()=>{
+ const r=await renderCard('<script>renderSomething()</script>','',DEFAULT_CONFIG);
+ assert.match(r.questionLines.join(''),/Anki/);
+ assert.match(r.answerLines.join(''),/Anki/);
+});
