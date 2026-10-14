@@ -4,7 +4,7 @@
  * degrade to "[image: filename]" placeholders.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -33,6 +33,14 @@ export function stripHtml(html: string): string[] {
 	return html
 		.replace(/<!--[\s\S]*?-->/g, "")
 		.replace(/\[sound:[^\]]+\]/g, "♪")
+		.replace(/<img\b[^>]*?\bsrc\s*=\s*(?:["']([^"']+)["']|([^\s>]+))[^>]*>/gi, (_match, d, s) => {
+			const name = (d ?? s)?.split("?")[0]?.split("/").pop() ?? "image";
+			return `\n[图片: ${name}]\n`;
+		})
+		.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_match, alt, url) => {
+			const name = url.split("?")[0]?.split("/").pop() ?? alt ?? "image";
+			return `\n[图片: ${name}]\n`;
+		})
 		.replace(/<img[^>]*>/g, `\n${IMG_TOKEN}\n`)
 		.replace(/<style[^>]*>[\s\S]*?<\/style>/g, "")
 		.replace(/<script[^>]*>[\s\S]*?<\/script>/g, "")
@@ -58,7 +66,16 @@ export function textLines(html: string, maxLines = 60): { lines: string[]; trimm
 
 export function extractImages(html: string): string[] {
 	const out: string[] = [];
-	for (const m of html.matchAll(/<img[^>]*src="([^"]+)"[^>]*>/g)) out.push(m[1]);
+	// HTML <img> tags: double quotes, single quotes, or unquoted
+	for (const m of html.matchAll(/<img\b[^>]*?\bsrc\s*=\s*(?:["']([^"']+)["']|([^\s>]+))[^>]*>/gi)) {
+		const src = (m[1] ?? m[2])?.trim();
+		if (src) out.push(src);
+	}
+	// Markdown images: ![alt](url)
+	for (const m of html.matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g)) {
+		const src = m[1]?.trim();
+		if (src) out.push(src);
+	}
 	return out;
 }
 
@@ -161,13 +178,17 @@ export async function renderFirstImage(
 	html: string,
 	config: AnkiFlashConfig,
 ): Promise<{ lines: string[]; capped: boolean }> {
-	const name = extractImages(html)[0];
-	if (!name) return { lines: [], capped: false };
+	const rawName = extractImages(html)[0];
+	if (!rawName) return { lines: [], capped: false };
+	const name = rawName.replace(/^file:\/\//, "").split("?")[0].split("/").pop() ?? rawName;
 	if (!config.media.renderImages || (inTmux() ? process.env.PI_IMAGE_PROTOCOL !== "kitty" : !getCapabilities().images)) {
 		return { lines: [`[image: ${name}]`], capped: false };
 	}
 	try {
 		const b64 = await retrieveMediaFile(name);
+		if (!b64 || typeof b64 !== "string") {
+			return { lines: [`[image: ${name} (unavailable)]`], capped: false };
+		}
 		const dims = imageDimensions(b64, name);
 		if (!dims) return { lines: [`[image: ${name}]`], capped: false };
 		if (inTmux()) {
@@ -251,10 +272,29 @@ export async function renderCard(
 	return { questionLines, answerLines, truncated };
 }
 
-/** Upload a local media file to Anki's media dir; returns the stored filename. */
-export async function storeLocalMedia(path: string): Promise<string> {
-	const filename = path.split("/").pop() ?? "media.bin";
-	const data = readFileSync(path).toString("base64");
+/** Upload a local media file or remote URL to Anki's media dir; returns the stored filename. */
+export async function storeLocalMedia(pathOrUrl: string): Promise<string> {
+	if (/^https?:\/\//i.test(pathOrUrl)) {
+		const res = await fetch(pathOrUrl);
+		if (!res.ok) throw new Error(`无法下载网络图片: ${pathOrUrl} (HTTP ${res.status})`);
+		const arrayBuf = await res.arrayBuffer();
+		const data = Buffer.from(arrayBuf).toString("base64");
+		const urlPath = new URL(pathOrUrl).pathname;
+		let filename = urlPath.split("/").pop() || `web-img-${Date.now()}.png`;
+		filename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+		if (!/\.(png|jpe?g|gif|webp|svg)$/i.test(filename)) filename += ".png";
+		const stored = await storeMediaFile(filename, data);
+		return stored ?? filename;
+	}
+	let cleanPath = pathOrUrl.replace(/^file:\/\//, "");
+	if (cleanPath.startsWith("~/")) {
+		cleanPath = join(process.env.HOME ?? "", cleanPath.slice(2));
+	}
+	if (!existsSync(cleanPath)) {
+		throw new Error(`本地图片文件不存在: ${cleanPath}`);
+	}
+	const filename = cleanPath.split("/").pop() ?? `media-${Date.now()}.bin`;
+	const data = readFileSync(cleanPath).toString("base64");
 	const stored = await storeMediaFile(filename, data);
 	return stored ?? filename;
 }

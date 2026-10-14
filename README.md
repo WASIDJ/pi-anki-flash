@@ -18,6 +18,8 @@ real scheduler and sync normally through AnkiWeb.
 - Revise drafts in natural language, edit fields or tags, switch note types, and choose or create decks.
 - Reuse existing Anki tags and mark agent-authored notes with `pi`.
 - Use Basic, Cloze, Markdown, and custom note types through their real named fields.
+- Embed images as Markdown/HTML or pass local files and remote URLs — they are uploaded to `collection.media` automatically. Image Occlusion note types are rejected with guidance.
+- Batch-write cards without per-card review on explicit request, always ending with an Anki sync.
 - Review and grade due cards in a terminal overlay backed by Anki's scheduler.
 - Browse cards, inspect due counts, and run a read-only FSRS workload simulation.
 - Read and update one deck's desired retention, daily limits, and learning steps from chat.
@@ -79,6 +81,30 @@ when saved. Use `::` when creating nested decks, for example
 afterward leaves an empty deck in Anki.
 
 Find today's agent-authored notes with `/anki-browse tag:pi added:1`.
+
+### Images in cards
+
+Images work everywhere in card fields: embed them as Markdown `![alt](path-or-url)`,
+HTML `<img src="...">`, or pass them via the `images` parameter with a `path`, `url`,
+optional `filename` and target `field`. Local files (including `~` paths) and remote
+`http(s)` URLs are automatically uploaded into Anki's `collection.media` and the field
+content is rewritten to reference the stored filename. Text previews show
+`[图片: name]` placeholders; on supporting terminals the review overlay renders the
+image inline.
+
+**Image Occlusion note types are not supported through the API** — Anki's native
+Image Occlusion depends on the desktop GUI canvas and its interactive mask
+coordinates. For image-based recall cards, use `Basic` or `Anki Markdown` with the
+image on the front, or add a Cloze layer below the image. Attempting to use an
+`Image Occlusion` note type fails with a clear diagnostic message.
+
+### Batch mode without per-card review
+
+When you explicitly ask for it (e.g. "直接制卡", "不需要确认", "不用审核"), Pi skips
+the interactive preview and writes the notes straight into Anki through the
+AnkiConnect API, always finishing with a `sync` so other devices receive the cards.
+Default note type is `Anki Markdown`. Without an explicit opt-in, every card still
+goes through the `y/n` preview.
 
 ### pi-permission-system
 

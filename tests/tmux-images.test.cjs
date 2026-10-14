@@ -18,7 +18,7 @@ process.env.TMUX=`/tmp/${socket},1,0`;process.env.TMUX_PANE=pane;
 // Use the real socket path so production tmux selection is exercised.
 process.env.TMUX=tmux('display-message','-p','-t',pane,'#{socket_path}')+',1,0';
 process.env.PI_IMAGE_PROTOCOL='kitty';
-const tuiPath=require('../tsconfig.json').compilerOptions.paths['@earendil-works/pi-tui'][0];
+const tuiPath=require('../tsconfig.json').compilerOptions.paths['@earendil-works/pi-tui'].find(path=>require('node:fs').existsSync(resolve(path,'dist/index.js')));
 const jiti=createJiti(__filename,{alias:{'@earendil-works/pi-tui':resolve(tuiPath,'dist/index.js')}});
 const render=jiti('../extensions/anki-flash/render.ts');
 const {DEFAULT_CONFIG}=jiti('../extensions/anki-flash/config.ts');

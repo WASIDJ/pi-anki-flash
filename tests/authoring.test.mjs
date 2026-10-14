@@ -10,7 +10,13 @@ const require = createRequire(import.meta.url);
 let piRoot = process.env.PI_PACKAGE_DIR;
 if (!piRoot) {
 	try { piRoot = dirname(require.resolve("@earendil-works/pi-coding-agent/package.json")); }
-	catch { piRoot = resolve(dirname(process.execPath), "../lib/node_modules/@earendil-works/pi-coding-agent"); }
+	catch {
+		const candidates = [
+			resolve(dirname(process.execPath), "../lib/node_modules/@earendil-works/pi-coding-agent"),
+			"/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent",
+		];
+		piRoot = candidates.find((c) => { try { require(resolve(c, "package.json")); return true; } catch { return false; } });
+	}
 }
 const { loadExtensions } = await import(pathToFileURL(resolve(piRoot, "dist/core/extensions/loader.js")));
 const loaded = await loadExtensions([resolve(root, "extensions/anki-flash/index.ts")], root);
@@ -41,6 +47,7 @@ beforeEach(() => {
 			case "getTags": result = ["english", "phrase"]; break;
 			case "canAddNotes": result = [addable]; break;
 			case "addNote": writes.push(params.note); result = 123456; break;
+			case "storeMediaFile": result = params.filename; break;
 			default: throw new Error(`Unexpected action ${action}`);
 		}
 		return new Response(JSON.stringify({ result, error: null }), { status: 200 });
@@ -319,3 +326,29 @@ test("live Anki discovery, cancellation and preflight (no writes)", { skip: proc
 		assert.deepEqual(checked.result, [true], model);
 	}
 });
+
+test("card with local image auto-stores media via storeMediaFile and updates field", async () => {
+	const tmpFile = resolve(root, "package.json");
+	const ctx = uiContext({ keys: ["y"] });
+	const result = resultData(await invoke("anki_add_note", {
+		deck: "English",
+		front: "Image test",
+		back: `Look at this diagram: <img src="${tmpFile}">`,
+	}, ctx));
+	assert.equal(result.status, "created");
+	assert.ok(requests.some((r) => r.action === "storeMediaFile" && r.params.filename === "package.json"));
+	assert.match(writes[0].fields.Back, /<img src="package\.json">/);
+});
+
+test("Image Occlusion template without cloze rejection has clear diagnostic message", async () => {
+	schemas["Image Occlusion"] = ["Occlusion", "Image", "Header"];
+	const draft = {
+		deck: "English",
+		model: "Image Occlusion",
+		fields: { Image: "<img src='foo.png'>", Header: "Anatomy", Occlusion: "not cloze" },
+	};
+	const res = await invoke("anki_add_note", draft, uiContext());
+	assert.equal(res.isError, true);
+	assert.match(res.content[0].text, /无法直接使用 Image Occlusion 模板/);
+});
+

@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const {createJiti}=require('jiti');
 const {resolve}=require('node:path');
 const paths=require('../tsconfig.json').compilerOptions.paths;
-const tuiPath=paths['@earendil-works/pi-tui'][0];
+const tuiPath=paths['@earendil-works/pi-tui'].find(path=>require('node:fs').existsSync(resolve(path,'dist/index.js')));
 const jiti=createJiti(__filename,{alias:{'@earendil-works/pi-tui':resolve(tuiPath,'dist/index.js')}});
 const {wrap,answerOnly,renderCard,styleCardLine}=jiti('../extensions/anki-flash/render.ts');
 const {FlashcardComponent}=jiti('../extensions/anki-flash/review.ts');
@@ -57,3 +57,10 @@ test('unsupported script-only templates show a diagnostic instead of blank cards
  assert.match(r.questionLines.join(''),/Anki/);
  assert.match(r.answerLines.join(''),/Anki/);
 });
+
+test('extractImages handles double quotes, single quotes, and Markdown syntax', () => {
+ const {extractImages}=jiti('../extensions/anki-flash/render.ts');
+ const html = '<img src="pic1.png"> <img src=\'pic2.jpg\'> <img src=pic3.gif> ![markdown image](pic4.webp)';
+ assert.deepEqual(extractImages(html), ['pic1.png', 'pic2.jpg', 'pic3.gif', 'pic4.webp']);
+});
+
