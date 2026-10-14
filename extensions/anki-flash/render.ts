@@ -12,6 +12,7 @@ import {
 	renderImage,
 	wrapTextWithAnsi,
 	getCapabilities,
+	setCapabilityOverrides,
 	getPngDimensions,
 	getJpegDimensions,
 	getGifDimensions,
@@ -20,6 +21,28 @@ import {
 } from "@earendil-works/pi-tui";
 import { retrieveMediaFile, storeMediaFile } from "./connect";
 import type { AnkiFlashConfig } from "./config";
+
+// ---------------------------------------------------------------------------
+// tmux passthrough: pi-tui disables images when $TMUX is set (raw kitty/iTerm2
+// sequences get swallowed by tmux). When the user explicitly opts in via
+// PI_IMAGE_PROTOCOL, restore the capability and wrap the sequence in a tmux
+// DCS passthrough envelope (requires `set -g allow-passthrough on` in tmux 3.3+).
+// ---------------------------------------------------------------------------
+
+const TMUX_IMAGE_PROTOCOL =
+	process.env.TMUX && /^(kitty|iterm2)$/.test(process.env.PI_IMAGE_PROTOCOL ?? "")
+		? (process.env.PI_IMAGE_PROTOCOL as "kitty" | "iterm2")
+		: null;
+
+if (TMUX_IMAGE_PROTOCOL) {
+	setCapabilityOverrides({ images: TMUX_IMAGE_PROTOCOL });
+}
+
+function tmuxWrap(sequence: string): string {
+	return TMUX_IMAGE_PROTOCOL
+		? `\x1bPtmux;${sequence.replace(/\x1b/g, "\x1b\x1b")}\x1b\\`
+		: sequence;
+}
 
 // ---------------------------------------------------------------------------
 // Text extraction
@@ -173,7 +196,7 @@ export async function renderFirstImage(
 			imageId: allocateImageId(),
 		});
 		if (!result) return { lines: [`[image: ${name}]`], capped: false };
-		const lines = [result.sequence];
+		const lines = [tmuxWrap(result.sequence)];
 		for (let i = 1; i < result.rows; i++) lines.push("");
 		return { lines, capped: result.rows >= config.media.maxImageHeightCells };
 	} catch {
