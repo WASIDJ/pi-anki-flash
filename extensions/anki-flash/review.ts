@@ -24,7 +24,8 @@ import {
 	addNote,
 	type GuiCard,
 } from "./connect";
-import { renderCard, wrapLines, styleCardLine, playSounds, type CardRenderResult } from "./render";
+import { renderCard, releaseCardImages, wrapLines, styleCardLine, playSounds, type CardRenderResult } from "./render";
+import { inTmux, tmuxImagesVisible } from "./tmux-images";
 import type { AnkiFlashConfig } from "./config";
 
 type View = "loading" | "review" | "browse" | "add" | "done" | "error";
@@ -66,6 +67,8 @@ export class FlashcardComponent {
 	private addDeck = "";
 
 	private busy = false;
+	private imageFocusTimer?: ReturnType<typeof setInterval>;
+	private disposed = false;
 
 	constructor(
 		pi: ExtensionAPI,
@@ -79,6 +82,14 @@ export class FlashcardComponent {
 		this.done = done;
 		this.config = config;
 		this.deckArg = deckArg;
+		if (inTmux() && process.env.PI_IMAGE_PROTOCOL === "kitty") {
+			let visible = tmuxImagesVisible();
+			this.imageFocusTimer = setInterval(() => {
+				const next = tmuxImagesVisible();
+				if (next !== visible) { visible = next; this.repaint(); }
+			}, 500);
+			this.imageFocusTimer.unref();
+		}
 	}
 
 	async start(): Promise<void> {
@@ -101,12 +112,17 @@ export class FlashcardComponent {
 	private async finishLoadingCurrentCard(): Promise<void> {
 		await this.refreshMetadata();
 		if (!this.card) {
+			releaseCardImages(this.rendered);
+			this.rendered = null;
 			this.view = "done";
 			return;
 		}
 		this.view = "review";
 		this.showAnswer = false;
+		releaseCardImages(this.rendered);
+		this.rendered = null;
 		this.rendered = await renderCard(this.card.question, this.card.answer, this.config);
+		if (this.disposed) releaseCardImages(this.rendered);
 		playSounds(this.card.question, this.pi, this.config);
 	}
 
@@ -151,6 +167,7 @@ export class FlashcardComponent {
 					return;
 				}
 			} else {
+				this.dispose();
 				this.done();
 				return;
 			}
@@ -160,8 +177,10 @@ export class FlashcardComponent {
 			case "loading":
 			case "done":
 			case "error":
-				if (!matchesKey(data, "escape") && (data === "q" || data === "Q")) this.done();
-				else if (this.view !== "loading") this.done();
+				if ((!matchesKey(data, "escape") && (data === "q" || data === "Q")) || this.view !== "loading") {
+					this.dispose();
+					this.done();
+				}
 				return;
 			case "add":
 				this.handleAddKey(data);
@@ -263,7 +282,10 @@ export class FlashcardComponent {
 	private async renderBrowseEntry(): Promise<void> {
 		const entry = this.browseList[this.browseIdx];
 		if (!entry) return;
+		releaseCardImages(this.browseRendered);
+		this.browseRendered = null;
 		this.browseRendered = await renderCard(entry.question, entry.answer, this.config);
+		if (this.disposed) releaseCardImages(this.browseRendered);
 	}
 
 	private handleBrowseKey(data: string): void {
@@ -371,7 +393,12 @@ export class FlashcardComponent {
 
 	invalidate(): void {}
 
-	dispose(): void {}
+	dispose(): void {
+		this.disposed = true;
+		clearInterval(this.imageFocusTimer);
+		releaseCardImages(this.rendered);
+		releaseCardImages(this.browseRendered);
+	}
 
 	render(width: number): string[] {
 		const dim = (s: string) => `\x1b[2m${s}\x1b[22m`;

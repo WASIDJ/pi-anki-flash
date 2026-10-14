@@ -12,7 +12,6 @@ import {
 	renderImage,
 	wrapTextWithAnsi,
 	getCapabilities,
-	setCapabilityOverrides,
 	getPngDimensions,
 	getJpegDimensions,
 	getGifDimensions,
@@ -22,27 +21,7 @@ import {
 import { retrieveMediaFile, storeMediaFile } from "./connect";
 import type { AnkiFlashConfig } from "./config";
 
-// ---------------------------------------------------------------------------
-// tmux passthrough: pi-tui disables images when $TMUX is set (raw kitty/iTerm2
-// sequences get swallowed by tmux). When the user explicitly opts in via
-// PI_IMAGE_PROTOCOL, restore the capability and wrap the sequence in a tmux
-// DCS passthrough envelope (requires `set -g allow-passthrough on` in tmux 3.3+).
-// ---------------------------------------------------------------------------
-
-const TMUX_IMAGE_PROTOCOL =
-	process.env.TMUX && /^(kitty|iterm2)$/.test(process.env.PI_IMAGE_PROTOCOL ?? "")
-		? (process.env.PI_IMAGE_PROTOCOL as "kitty" | "iterm2")
-		: null;
-
-if (TMUX_IMAGE_PROTOCOL) {
-	setCapabilityOverrides({ images: TMUX_IMAGE_PROTOCOL });
-}
-
-function tmuxWrap(sequence: string): string {
-	return TMUX_IMAGE_PROTOCOL
-		? `\x1bPtmux;${sequence.replace(/\x1b/g, "\x1b\x1b")}\x1b\\`
-		: sequence;
-}
+import { inTmux, createTmuxImage, layoutTmuxImage, tmuxImagesVisible, releaseTmuxImages } from "./tmux-images";
 
 // ---------------------------------------------------------------------------
 // Text extraction
@@ -121,7 +100,8 @@ export function wrap(text: string, width: number): string[] {
 }
 
 export function wrapLines(lines: string[], width: number): string[] {
-	return lines.flatMap((line) => wrap(line, width));
+	const visible = lines.some((line) => line.startsWith("[ANKI_IMAGE:")) && tmuxImagesVisible();
+	return lines.flatMap((line) => layoutTmuxImage(line, width, visible) ?? wrap(line, width));
 }
 
 /** The standard Anki back contains FrontSide followed by <hr id=answer>. */
@@ -183,20 +163,24 @@ export async function renderFirstImage(
 ): Promise<{ lines: string[]; capped: boolean }> {
 	const name = extractImages(html)[0];
 	if (!name) return { lines: [], capped: false };
-	if (!config.media.renderImages || !getCapabilities().images) {
+	if (!config.media.renderImages || (inTmux() ? process.env.PI_IMAGE_PROTOCOL !== "kitty" : !getCapabilities().images)) {
 		return { lines: [`[image: ${name}]`], capped: false };
 	}
 	try {
 		const b64 = await retrieveMediaFile(name);
 		const dims = imageDimensions(b64, name);
 		if (!dims) return { lines: [`[image: ${name}]`], capped: false };
+		if (inTmux()) {
+			return { lines: [createTmuxImage({ name, base64: b64, ...dims,
+				maxWidth: config.media.maxImageWidthCells, maxHeight: config.media.maxImageHeightCells })], capped: false };
+		}
 		const result = renderImage(b64, dims, {
 			maxWidthCells: config.media.maxImageWidthCells,
 			maxHeightCells: config.media.maxImageHeightCells,
 			imageId: allocateImageId(),
 		});
 		if (!result) return { lines: [`[image: ${name}]`], capped: false };
-		const lines = [tmuxWrap(result.sequence)];
+		const lines = [result.sequence];
 		for (let i = 1; i < result.rows; i++) lines.push("");
 		return { lines, capped: result.rows >= config.media.maxImageHeightCells };
 	} catch {
@@ -248,12 +232,12 @@ export async function renderCard(
 	const tQ = textLines(questionHtml);
 	const tA = textLines(answerHtml);
 	const imgQ = await renderFirstImage(questionHtml, config);
-	const imgA = await renderFirstImage(answerHtml, config);
+	const sameImage = extractImages(answerHtml)[0] && extractImages(answerHtml)[0] === extractImages(questionHtml)[0];
+	const imgA = sameImage ? { lines: [], capped: false } : await renderFirstImage(answerHtml, config);
 
 	const questionLines = [...(imgQ.lines.length > 0 ? [...imgQ.lines, ...tQ.lines] : tQ.lines)];
 
 	// Answer repeats the same image in most templates — only add its image when different.
-	const sameImage = extractImages(answerHtml)[0] && extractImages(answerHtml)[0] === extractImages(questionHtml)[0];
 	const answerLines: string[] = [];
 
 	if (!sameImage && imgA.lines.length > 0) {
@@ -273,4 +257,9 @@ export async function storeLocalMedia(path: string): Promise<string> {
 	const data = readFileSync(path).toString("base64");
 	const stored = await storeMediaFile(filename, data);
 	return stored ?? filename;
+}
+
+/** Free only images owned by this card; ordinary terminal rendering is unchanged. */
+export function releaseCardImages(card: CardRenderResult | null): void {
+	if (card) releaseTmuxImages([...card.questionLines, ...card.answerLines]);
 }
