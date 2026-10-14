@@ -57,3 +57,10 @@ test('unsupported script-only templates show a diagnostic instead of blank cards
  assert.match(r.questionLines.join(''),/Anki/);
  assert.match(r.answerLines.join(''),/Anki/);
 });
+
+test('extractImages handles double quotes, single quotes, and Markdown syntax', () => {
+ const {extractImages}=jiti('../extensions/anki-flash/render.ts');
+ const html = '<img src="pic1.png"> <img src=\'pic2.jpg\'> <img src=pic3.gif> ![markdown image](pic4.webp)';
+ assert.deepEqual(extractImages(html), ['pic1.png', 'pic2.jpg', 'pic3.gif', 'pic4.webp']);
+});
+

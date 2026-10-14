@@ -18,6 +18,8 @@
 - 优先复用 Anki 中已有的 tags，并为 Pi 创建的卡片自动添加 `pi`。
 - 可以在牌组选择器中直接创建牌组和子牌组。
 - 使用真实字段支持 Basic、Cloze、Markdown 及自定义笔记类型。
+- 支持通过 Markdown/HTML 嵌入图片或传入本地文件、远程 URL，自动上传到 `collection.media`；Image Occlusion 会明确拒绝并给出替代方案。
+- 明确要求时可跳过逐卡预览批量直接写入，并自动 sync 到其他设备。
 - 在终端浮层中复习和评分，评分结果直接进入 Anki 调度器。
 - 搜索卡片、查看到期数量，并进行只读的 FSRS 工作量模拟。
 
@@ -76,6 +78,25 @@ Pi 会从正在运行的 Anki 中读取真实的笔记类型、字段名、牌�
 `语言::英语`。牌组会立即创建，因此之后即使跳过卡片，Anki 中仍会保留空牌组。
 
 使用 `/anki-browse tag:pi added:1` 可以查找今天由 Pi 创建的卡片。
+
+### 卡片中使用图片
+
+图片可以放在任何字段中：Markdown `![alt](路径或 URL)`、HTML `<img src="...">`，
+或携带 `images` 参数（支持 `path`、`url`、可选 `filename` 和目标 `field` ）。
+无论是本地文件（支持 `~` 路径）还是远程 `http(s)` URL，都会被自动上传到
+Anki 的 `collection.media` 并重写字段为存储后的文件名。终端文本预览中显示为
+`[图片: 文件名]` 占位符；在支持行内图片的终端中，复习浮层会真实渲染图片。
+
+**不支持 Image Occlusion 笔记类型** —— Anki 原生的图片遮挡依赖桌面端
+GUI 画布和交互式遮挡坐标。需要图片回忆卡时请使用 `Basic` 或 `Anki Markdown`
+把图片放在正面，或在图片下加 Cloze。误用 `Image Occlusion` 会收到明确的
+错误提示。
+
+### 无审核的批量制卡
+
+当明确要求（例如“直接制卡”“不需要确认”“不用审核”）时，Pi 会跳过每张卡的交互
+预览，直接通过 AnkiConnect API 写入卡片，并一定以 `sync` 结束让其他设备同步收到。
+默认使用 `Anki Markdown` 笔记类型。未经明确要求时，每张卡片依然走 `y/n` 预览流程。
 
 ### 与 pi-permission-system 配合
 

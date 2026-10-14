@@ -5,7 +5,7 @@ import {
 	setConnectUrl, type AddNoteParams,
 } from "./connect";
 import { loadConfig } from "./config";
-import { stripHtml } from "./render";
+import { stripHtml, storeLocalMedia } from "./render";
 
 export interface NoteTemplate {
 	name: string;
@@ -34,6 +34,13 @@ export async function authoringContext() {
 	return { templates, decks, tags, defaultDeck };
 }
 
+export interface NoteImage {
+	path?: string;
+	url?: string;
+	filename?: string;
+	field?: string;
+}
+
 export interface NoteDraft {
 	deck?: string;
 	model?: string;
@@ -47,6 +54,7 @@ export interface NoteDraft {
 		anchor?: string;
 		coveredDirections?: string[];
 	};
+	images?: NoteImage[];
 }
 
 export function normalizeTags(tags: string[]): string[] {
@@ -140,9 +148,91 @@ export function draftFields(draft: NoteDraft, template: NoteTemplate): Record<st
 	return Object.fromEntries(template.fields.map((key, i) => [key, (i === 0 ? draft.front : draft.back) ?? ""]));
 }
 
+export async function processCardMedia(
+	fields: Record<string, string>,
+	images?: NoteImage[],
+): Promise<Record<string, string>> {
+	const result = { ...fields };
+
+	if (images && Array.isArray(images)) {
+		for (const img of images) {
+			const source = img.path || img.url;
+			if (!source) continue;
+			try {
+				const storedName = await storeLocalMedia(source);
+				const targetField = img.field && result[img.field] !== undefined
+					? img.field
+					: (result.Back !== undefined ? "Back" : Object.keys(result)[1] ?? Object.keys(result)[0]);
+				if (targetField) {
+					result[targetField] = result[targetField]
+						? `${result[targetField]}<br><img src="${storedName}">`
+						: `<img src="${storedName}">`;
+				}
+			} catch (e) {
+				console.warn(`[pi-anki-flash] Failed to store image ${source}:`, e);
+			}
+		}
+	}
+
+	for (const [key, value] of Object.entries(result)) {
+		if (!value) continue;
+		let updated = value;
+
+		const imgRegex = /<img\b([^>]*?)\bsrc\s*=\s*(?:["']([^"']+)["']|([^\s>]+))([^>]*)>/gi;
+		const imgMatches = [...value.matchAll(imgRegex)];
+		for (const m of imgMatches) {
+			const fullTag = m[0];
+			const preAttr = m[1] ?? "";
+			const src = (m[2] ?? m[3])?.trim();
+			const postAttr = m[4] ?? "";
+			if (!src) continue;
+
+			if (/^(?:https?:\/\/|file:\/\/|\/|\.\/|\.\.\/|~)/i.test(src) || src.includes("/")) {
+				try {
+					const stored = await storeLocalMedia(src);
+					const newTag = `<img${preAttr}src="${stored}"${postAttr}>`;
+					updated = updated.replace(fullTag, newTag);
+				} catch (e) {
+					console.warn(`[pi-anki-flash] Failed to ingest image src ${src}:`, e);
+				}
+			}
+		}
+
+		const mdRegex = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+		const mdMatches = [...updated.matchAll(mdRegex)];
+		for (const m of mdMatches) {
+			const fullTag = m[0];
+			const alt = m[1];
+			const src = m[2]?.trim();
+			if (!src) continue;
+
+			if (/^(?:https?:\/\/|file:\/\/|\/|\.\/|\.\.\/|~)/i.test(src) || src.includes("/")) {
+				try {
+					const stored = await storeLocalMedia(src);
+					updated = updated.replace(fullTag, `<img src="${stored}" alt="${alt}">`);
+				} catch (e) {
+					console.warn(`[pi-anki-flash] Failed to ingest markdown image ${src}:`, e);
+				}
+			}
+		}
+
+		result[key] = updated;
+	}
+
+	return result;
+}
+
 function validateFields(fields: Record<string, string>, template: NoteTemplate): void {
 	if (!Object.values(fields).some((value) => value.trim())) throw new Error("Card fields are empty");
-	if (template.clozeFields.length && !template.clozeFields.some((key) => /{{c[1-9]\d*::[\s\S]+?}}/.test(fields[key] ?? ""))) {
+	if (template.name === "Image Occlusion") {
+		const hasCloze = template.clozeFields.some((key) => /{{c[1-9]\d*::[\s\S]+?}}/.test(fields[key] ?? ""));
+		if (!hasCloze) {
+			throw new Error(
+				"无法直接使用 Image Occlusion 模板：该模板是 Anki 桌面端图形画板专用模板，依赖桌面端 GUI 框选生成遮罩坐标（{{c1::...}} 填空）。" +
+				"建议使用普通模板（如 Basic 或 Anki Markdown），将图片放在正面（Front），问题或考点放在背面（Back）；或者在 Anki 桌面端自带的图片遮挡工具中手动框选制卡。",
+			);
+		}
+	} else if (template.clozeFields.length && !template.clozeFields.some((key) => /{{c[1-9]\d*::[\s\S]+?}}/.test(fields[key] ?? ""))) {
 		throw new Error(`Cloze requires {{c1::answer}} in: ${template.clozeFields.join(", ")}`);
 	}
 }
@@ -228,8 +318,9 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 	if (deck && !context.decks.includes(deck)) throw new Error(`Unknown deck: ${deck}`);
 	if (!deck) deck = await selectDeck(ctx, signal);
 	if (!deck || signal?.aborted) return { status: "cancelled" };
+	const initialFields = await processCardMedia(draftFields(draft, template), draft.images);
 	const note: AddNoteParams = {
-		deckName: deck, modelName: template.name, fields: draftFields(draft, template), tags: normalizeTags(draft.tags ?? []),
+		deckName: deck, modelName: template.name, fields: initialFields, tags: normalizeTags(draft.tags ?? []),
 	};
 	validateFields(note.fields, template);
 	while (!signal?.aborted) {
@@ -273,7 +364,7 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 				if (!fields || Array.isArray(fields) || typeof fields !== "object" || Object.values(fields).some((v) => typeof v !== "string")) {
 					throw new Error("Fields must be a JSON object with string values");
 				}
-				const next = draftFields({ fields }, template);
+				const next = await processCardMedia(draftFields({ fields }, template));
 				validateFields(next, template);
 				note.fields = next;
 			} catch (error) { ctx.ui.notify(String(error), "error"); }

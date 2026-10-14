@@ -206,6 +206,8 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 			"The returned needs_revision draft uses anki_add_note parameter names and is authoritative. Preserve its deck, model, tags, and revision. For a template switch, regenerate sourceFields into the selected template's named fields without changing the other draft properties.",
 			"For /make-card and conversational card-making, set guided=true. After a created result with nextCard, immediately generate exactly one related card using nextCard.direction, previousCard, draft, and instruction; do not ask another chat question. Stop when nextCard is absent.",
 			"Report success only for status=created. For an uncertain write/network error, search for the note before retrying to avoid duplicates.",
+			"Images: Include images in fields via HTML (<img src='...'>) or Markdown (![alt](path/url)), or pass in the images parameter with local file paths or URLs. The plugin automatically imports them into Anki's media storage.",
+			"Do NOT use 'Image Occlusion' template directly via API: Anki's Image Occlusion is a desktop-only GUI canvas template requiring interactive SVG vector coordinates. For image-based recall cards, use 'Basic' or 'Anki Markdown' with the image on Front and explanation on Back.",
 		],
 		parameters: Type.Object({
 			deck: Type.Optional(Type.String()),
@@ -220,6 +222,12 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 				anchor: Type.Optional(Type.String({ description: "The core concept shared by this card chain." })),
 				coveredDirections: Type.Optional(Type.Array(Type.String())),
 			})),
+			images: Type.Optional(Type.Array(Type.Object({
+				path: Type.Optional(Type.String({ description: "Local image path to upload into Anki media collection" })),
+				url: Type.Optional(Type.String({ description: "Remote image URL to download and store into Anki media collection" })),
+				filename: Type.Optional(Type.String({ description: "Target filename in Anki collection.media" })),
+				field: Type.Optional(Type.String({ description: "Field name to append image to (default Back or Front)" })),
+			}))),
 		}),
 		async execute(_id, params, signal, _update, ctx) {
 			try {
