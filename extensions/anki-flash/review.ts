@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { matchesKey, visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth, truncateToWidth, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import {
 	getDeckStats,
 	type DeckStat,
@@ -39,7 +39,7 @@ interface BrowseEntry {
 
 export class FlashcardComponent {
 	private pi: ExtensionAPI;
-	private tui: { requestRender: () => void };
+	private tui: { requestRender: () => void; terminal?: { rows: number } };
 	private done: () => void;
 	private config: AnkiFlashConfig;
 
@@ -69,10 +69,14 @@ export class FlashcardComponent {
 	private busy = false;
 	private imageFocusTimer?: ReturnType<typeof setInterval>;
 	private disposed = false;
+	private scrollOffset = 0;
+	private maxScrollOffset = 0;
+	private pageHeight = 10;
+	private scrollToAnswer = false;
 
 	constructor(
 		pi: ExtensionAPI,
-		tui: { requestRender: () => void },
+		tui: { requestRender: () => void; terminal?: { rows: number } },
 		done: () => void,
 		config: AnkiFlashConfig,
 		deckArg: string | null,
@@ -119,6 +123,7 @@ export class FlashcardComponent {
 		}
 		this.view = "review";
 		this.showAnswer = false;
+		this.scrollOffset = 0;
 		releaseCardImages(this.rendered);
 		this.rendered = null;
 		this.rendered = await renderCard(this.card.question, this.card.answer, this.config);
@@ -158,6 +163,22 @@ export class FlashcardComponent {
 	// ------------------------------------------------------------------ keys
 
 	handleInput(data: string): void {
+		if (this.view === "review" || this.view === "browse") {
+			const wheel = /^\x1b\[<(64|65);\d+;\d+[Mm]$/.exec(data);
+			let next = this.scrollOffset;
+			if (matchesKey(data, "up") || wheel?.[1] === "64") next -= wheel ? 3 : 1;
+			else if (matchesKey(data, "down") || wheel?.[1] === "65") next += wheel ? 3 : 1;
+			else if (matchesKey(data, "pageUp")) next -= this.pageHeight;
+			else if (matchesKey(data, "pageDown")) next += this.pageHeight;
+			else if (matchesKey(data, "home")) next = 0;
+			else if (matchesKey(data, "end")) next = this.maxScrollOffset;
+			else next = NaN;
+			if (!Number.isNaN(next)) {
+				this.scrollOffset = Math.max(0, Math.min(this.maxScrollOffset, next));
+				this.repaint();
+				return;
+			}
+		}
 		if (matchesKey(data, "escape") || ((data === "q" || data === "Q") && this.view !== "add")) {
 			if (this.view === "add") {
 				// Esc exits the add form; q is a normal typed character there.
@@ -194,6 +215,13 @@ export class FlashcardComponent {
 		}
 	}
 
+	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.type !== "wheel" || (this.view !== "review" && this.view !== "browse")) return undefined;
+		this.scrollOffset = Math.max(0, Math.min(this.maxScrollOffset, this.scrollOffset + (event.wheelDelta ?? 0)));
+		this.repaint();
+		return { handled: true, render: true };
+	}
+
 	private handleReviewKey(data: string): void {
 		if (this.busy || !this.card) return;
 
@@ -207,6 +235,7 @@ export class FlashcardComponent {
 				}
 				this.card = current;
 				this.showAnswer = true;
+				this.scrollToAnswer = true;
 				playSounds(this.card.answer, this.pi, this.config);
 			});
 			return;
@@ -280,6 +309,7 @@ export class FlashcardComponent {
 	}
 
 	private async renderBrowseEntry(): Promise<void> {
+		this.scrollOffset = 0;
 		const entry = this.browseList[this.browseIdx];
 		if (!entry) return;
 		releaseCardImages(this.browseRendered);
@@ -436,6 +466,8 @@ export class FlashcardComponent {
 			for (const line of wrapLines([`状态：${state} · ${this.showAnswer ? "请选择熟悉程度" : "回忆后按空格"}`], boxWidth)) lines.push(pad(dim(line)));
 		}
 		lines.push(border("├", "┤"));
+		const headerLength = lines.length;
+		let answerStart = 0;
 
 		if (this.view === "loading") {
 			lines.push(pad(dim("Loading cards…")));
@@ -466,11 +498,14 @@ export class FlashcardComponent {
 		} else if (this.view === "review" && this.card) {
 			const r = this.rendered;
 			if (r) {
-				lines.push(pad(dim("问题")));
-				for (const l of wrapLines(r.questionLines.map(styleCardLine), boxWidth - 2)) lines.push(pad(l));
+				if (!this.showAnswer || !r.replaceQuestionOnAnswer) {
+					lines.push(pad(dim("问题")));
+					for (const l of wrapLines(r.questionLines.map(styleCardLine), boxWidth - 2)) lines.push(pad(l));
+				}
 				if (this.showAnswer) {
 					lines.push(pad(""));
-				lines.push(pad(accent("答案")));
+					answerStart = lines.length - headerLength;
+					lines.push(pad(accent("答案")));
 					for (const l of wrapLines(r.answerLines.map(styleCardLine), boxWidth - 2)) lines.push(pad(l));
 					if (r.truncated) lines.push(pad(gold("…truncated — see full card in Anki/anki-tui")));
 				}
@@ -479,6 +514,7 @@ export class FlashcardComponent {
 			}
 		}
 
+		const footerStart = lines.length;
 		lines.push(pad(""));
 		if (this.busy) lines.push(pad(dim("working…")));
 		if (this.statusFlash) lines.push(pad(gold(this.statusFlash)));
@@ -497,11 +533,26 @@ export class FlashcardComponent {
 				row += (row ? "    " : "") + item;
 			}
 			if (row) for (const line of wrapLines([row], boxWidth)) lines.push(pad(line));
-			for (const line of wrapLines(["u 撤销 · r 音频 · s 暂停 · Esc 退出"], boxWidth)) lines.push(pad(dim(line)));
+			for (const line of wrapLines(["↑/↓ PgUp/PgDn 滚动 · u 撤销 · r 音频 · Esc 退出"], boxWidth)) lines.push(pad(dim(line)));
 		} else {
 			for (const line of wrapLines([this.footer(bold, EASE_LABELS, this.card?.buttons ?? [1, 2, 3, 4])], boxWidth)) lines.push(pad(line));
 		}
 		lines.push(border("╰", "╯"));
+		const rows = this.tui.terminal?.rows;
+		if (rows && (this.view === "review" || this.view === "browse")) {
+			const height = Math.max(3, rows - 2);
+			const header = lines.slice(0, Math.min(headerLength, Math.max(1, Math.floor(height / 3))));
+			const footer = lines.slice(footerStart).slice(-Math.max(2, Math.floor(height / 3)));
+			const body = lines.slice(headerLength, footerStart);
+			this.pageHeight = Math.max(1, height - header.length - footer.length);
+			this.maxScrollOffset = Math.max(0, body.length - this.pageHeight);
+			if (this.scrollToAnswer) {
+				this.scrollOffset = this.rendered?.replaceQuestionOnAnswer ? 0 : answerStart;
+				this.scrollToAnswer = false;
+			}
+			this.scrollOffset = Math.min(this.scrollOffset, this.maxScrollOffset);
+			lines.splice(0, lines.length, ...header, ...body.slice(this.scrollOffset, this.scrollOffset + this.pageHeight), ...footer);
+		}
 		// Absolute safety: never exceed the allotted width regardless of width math.
 		return lines.map((l) =>
 			l.includes("\x1b_G") || l.includes("\x1bPq") || l.includes("\x1b]1337;") || visibleWidth(l) <= width ? l : truncateToWidth(l, width - 1),
@@ -512,7 +563,7 @@ export class FlashcardComponent {
 		const k = (s: string) => bold(s);
 		switch (this.view) {
 			case "review":
-				if (!this.showAnswer) return `${k("Space")} reveal · ${k("b")} browse · ${k("a")} add · ${k("Esc")} close`;
+				if (!this.showAnswer) return `${k("↑/↓ PgUp/PgDn")} 滚动 · ${k("Space")} reveal · ${k("b")} browse · ${k("a")} add · ${k("Esc")} close`;
 				return (
 					buttons.map((b, i) => {
 						const interval = this.config.review.showNextReviews ? this.card?.nextReviews?.[i] : undefined;

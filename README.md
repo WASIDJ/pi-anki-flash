@@ -18,7 +18,7 @@ real scheduler and sync normally through AnkiWeb.
 - Revise drafts in natural language, edit fields or tags, switch note types, and choose or create decks.
 - Reuse existing Anki tags and mark agent-authored notes with `pi`.
 - Use Basic, Cloze, Markdown, and custom note types through their real named fields.
-- Embed images as Markdown/HTML or pass local files and remote URLs — they are uploaded to `collection.media` automatically. Image Occlusion note types are rejected with guidance.
+- Embed images as Markdown/HTML or pass local files and remote URLs — they are uploaded to `collection.media` automatically. Agents can create native Image Occlusion cards from normalized rectangular masks.
 - Batch-write cards without per-card review on explicit request, always ending with an Anki sync.
 - Review and grade due cards in a terminal overlay backed by Anki's scheduler.
 - Browse cards, inspect due counts, and run a read-only FSRS workload simulation.
@@ -92,11 +92,9 @@ content is rewritten to reference the stored filename. Text previews show
 `[图片: name]` placeholders; on supporting terminals the review overlay renders the
 image inline.
 
-**Image Occlusion note types are not supported through the API** — Anki's native
-Image Occlusion depends on the desktop GUI canvas and its interactive mask
-coordinates. For image-based recall cards, use `Basic` or `Anki Markdown` with the
-image on the front, or add a Cloze layer below the image. Attempting to use an
-`Image Occlusion` note type fails with a clear diagnostic message.
+**Image Occlusion**: pass `model: "Image Occlusion"` and `occlusion: {image, masks, hideOthers}` to `anki_add_note`. Each mask uses normalized `left`, `top`, `width`, `height` (0–1); optional `group` puts several masks on one card. The agent must inspect the image before choosing coordinates. Local paths/URLs are imported into Anki media. Saving still uses the normal confirmation UI. Native rectangle, ellipse and polygon masks render in review; unsupported mask/custom canvas formats show a placeholder to protect the answer.
+
+Long review cards scroll with ↑/↓, PageUp/PageDown and Home/End. Wheel scrolling works when mouse events reach Pi (tmux mouse mode may need enabling). Header and grading controls remain visible.
 
 ### Batch mode without per-card review
 

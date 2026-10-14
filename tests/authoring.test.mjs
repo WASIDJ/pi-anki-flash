@@ -41,7 +41,7 @@ beforeEach(() => {
 		switch (action) {
 			case "modelNames": result = Object.keys(schemas); break;
 			case "modelFieldNames": result = schemas[params.modelName]; break;
-			case "modelTemplates": result = { Card: { Front: params.modelName === "Cloze" ? "{{cloze:Text}}" : "{{Front}}", Back: "{{Back}}" } }; break;
+			case "modelTemplates": result = { Card: { Front: params.modelName === "Cloze" ? "{{cloze:Text}}" : params.modelName === "Image Occlusion" ? "{{cloze:Occlusion}}" : "{{Front}}", Back: "{{Back}}" } }; break;
 			case "deckNames": result = [...decks]; break;
 			case "createDeck": decks.push(params.deck); result = 42; break;
 			case "getTags": result = ["english", "phrase"]; break;
@@ -349,6 +349,20 @@ test("Image Occlusion template without cloze rejection has clear diagnostic mess
 	};
 	const res = await invoke("anki_add_note", draft, uiContext());
 	assert.equal(res.isError, true);
-	assert.match(res.content[0].text, /无法直接使用 Image Occlusion 模板/);
+	assert.match(res.content[0].text, /Image Occlusion 需要图片和有效的原生遮罩/);
 });
 
+
+test("agent creates a confirmed native occlusion note from grouped image coordinates",async()=>{
+ schemas["Image Occlusion"]=["Occlusion","Image","Header","Back Extra","Comments"];
+ const draft={deck:"English",guided:false,front:"Name these regions",back:"Explanation",occlusion:{image:"diagram.png",masks:[{left:.1,top:.2,width:.3,height:.1,group:1},{left:.5,top:.6,width:.2,height:.1,group:2}]}};
+ const ctx=uiContext({keys:["y"]});const result=resultData(await invoke("anki_add_note",draft,ctx));
+ assert.equal(result.status,"created");assert.equal(writes[0].modelName,"Image Occlusion");assert.match(writes[0].fields.Occlusion,/{{c2::image-occlusion:rect:/);
+ assert.equal(writes[0].fields.Header,"Name these regions");assert.equal(writes[0].fields["Back Extra"],"Explanation");assert.equal(writes[0].fields.Image,'<img src="diagram.png">');
+ const cancelled=resultData(await invoke("anki_add_note",draft,uiContext({keys:["n"]})));assert.equal(cancelled.status,"cancelled");assert.equal(writes.length,1);
+});
+test("invalid occlusion coordinates never reach media or note writes",async()=>{
+ schemas["Image Occlusion"]=["Occlusion","Image","Header"];
+ const result=await invoke("anki_add_note",{deck:"English",occlusion:{image:"bad.png",masks:[{left:.9,top:0,width:.5,height:.2}]}},uiContext({keys:["y"]}));
+ assert.equal(result.isError,true);assert.equal(writes.length,0);assert.ok(!requests.some(r=>r.action==="storeMediaFile"));
+});

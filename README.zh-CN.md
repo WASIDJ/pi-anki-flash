@@ -18,7 +18,7 @@
 - 优先复用 Anki 中已有的 tags，并为 Pi 创建的卡片自动添加 `pi`。
 - 可以在牌组选择器中直接创建牌组和子牌组。
 - 使用真实字段支持 Basic、Cloze、Markdown 及自定义笔记类型。
-- 支持通过 Markdown/HTML 嵌入图片或传入本地文件、远程 URL，自动上传到 `collection.media`；Image Occlusion 会明确拒绝并给出替代方案。
+- 支持通过 Markdown/HTML 嵌入图片或传入本地文件、远程 URL，自动上传到 `collection.media`；支持 agent 使用矩形遮罩生成原生 Image Occlusion 卡片。
 - 明确要求时可跳过逐卡预览批量直接写入，并自动 sync 到其他设备。
 - 在终端浮层中复习和评分，评分结果直接进入 Anki 调度器。
 - 搜索卡片、查看到期数量，并进行只读的 FSRS 工作量模拟。
@@ -87,10 +87,9 @@ Pi 会从正在运行的 Anki 中读取真实的笔记类型、字段名、牌�
 Anki 的 `collection.media` 并重写字段为存储后的文件名。终端文本预览中显示为
 `[图片: 文件名]` 占位符；在支持行内图片的终端中，复习浮层会真实渲染图片。
 
-**不支持 Image Occlusion 笔记类型** —— Anki 原生的图片遮挡依赖桌面端
-GUI 画布和交互式遮挡坐标。需要图片回忆卡时请使用 `Basic` 或 `Anki Markdown`
-把图片放在正面，或在图片下加 Cloze。误用 `Image Occlusion` 会收到明确的
-错误提示。
+**Image Occlusion 遮盖图制卡**：agent 可以向 `anki_add_note` 传入 `model: "Image Occlusion"` 和 `occlusion: {image, masks, hideOthers}`。每个矩形使用 0–1 比例的 `left/top/width/height`；相同 `group` 的遮罩生成同一张卡。Agent 先查看原图再选择坐标；本地文件和 URL 会导入 Anki 媒体。保存仍经过预览确认。复习支持原生矩形、椭圆、多边形遮罩；未知遮罩或自定义画布模板显示占位符，避免正面泄露原图。
+
+长卡片可用 ↑/↓、PageUp/PageDown、Home/End 滚动，标题和评分操作保持可见。Pi 接收到鼠标事件时也支持滚轮；tmux 中可能需开启 mouse 模式。
 
 ### 无审核的批量制卡
 

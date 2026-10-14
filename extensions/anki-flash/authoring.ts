@@ -5,6 +5,7 @@ import {
 	setConnectUrl, type AddNoteParams,
 } from "./connect";
 import { loadConfig } from "./config";
+import { occlusionFields, type OcclusionDraft } from "./occlusion";
 import { stripHtml, storeLocalMedia } from "./render";
 
 export interface NoteTemplate {
@@ -55,6 +56,7 @@ export interface NoteDraft {
 		coveredDirections?: string[];
 	};
 	images?: NoteImage[];
+	occlusion?: OcclusionDraft;
 }
 
 export function normalizeTags(tags: string[]): string[] {
@@ -137,6 +139,13 @@ async function selectDeck(ctx: ExtensionContext, signal?: AbortSignal): Promise<
 }
 
 export function draftFields(draft: NoteDraft, template: NoteTemplate): Record<string, string> {
+	if (draft.occlusion) {
+		if (template.name !== "Image Occlusion") throw new Error("occlusion requires the Image Occlusion template");
+		return draftFields({ ...draft, occlusion: undefined, fields: { ...draft.fields,
+			Header: draft.fields?.Header ?? draft.front ?? "",
+			...(template.fields.includes("Back Extra") ? { "Back Extra": draft.fields?.["Back Extra"] ?? draft.back ?? "" } : {}),
+			...occlusionFields(draft.occlusion) } }, template);
+	}
 	if (draft.fields) {
 		const unknown = Object.keys(draft.fields).filter((key) => !template.fields.includes(key));
 		if (unknown.length) throw new Error(`Unknown fields for ${template.name}: ${unknown.join(", ")}`);
@@ -225,12 +234,9 @@ export async function processCardMedia(
 function validateFields(fields: Record<string, string>, template: NoteTemplate): void {
 	if (!Object.values(fields).some((value) => value.trim())) throw new Error("Card fields are empty");
 	if (template.name === "Image Occlusion") {
-		const hasCloze = template.clozeFields.some((key) => /{{c[1-9]\d*::[\s\S]+?}}/.test(fields[key] ?? ""));
+		const hasCloze = /{{c[1-9]\d*::image-occlusion:(?:rect|ellipse|polygon):[^}]+}}/.test(fields.Occlusion ?? "") && /<img\b/i.test(fields.Image ?? "");
 		if (!hasCloze) {
-			throw new Error(
-				"无法直接使用 Image Occlusion 模板：该模板是 Anki 桌面端图形画板专用模板，依赖桌面端 GUI 框选生成遮罩坐标（{{c1::...}} 填空）。" +
-				"建议使用普通模板（如 Basic 或 Anki Markdown），将图片放在正面（Front），问题或考点放在背面（Back）；或者在 Anki 桌面端自带的图片遮挡工具中手动框选制卡。",
-			);
+			throw new Error("Image Occlusion 需要图片和有效的原生遮罩；请传入 occlusion.image 与 occlusion.masks（0–1 比例坐标）。");
 		}
 	} else if (template.clozeFields.length && !template.clozeFields.some((key) => /{{c[1-9]\d*::[\s\S]+?}}/.test(fields[key] ?? ""))) {
 		throw new Error(`Cloze requires {{c1::answer}} in: ${template.clozeFields.join(", ")}`);
@@ -305,6 +311,7 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 	if (!ctx.hasUI) throw new Error("Interactive UI required to review and confirm Anki cards; open Pi in TUI or RPC mode.");
 	if (signal?.aborted) return { status: "cancelled" };
 	const context = await authoringContext();
+	if (draft.occlusion && !draft.model) draft = { ...draft, model: "Image Occlusion" };
 	let template = draft.model ? context.templates.find((t) => t.name === draft.model) : undefined;
 	if (draft.model && !template) throw new Error(`Unknown template: ${draft.model}`);
 	if (!template) {
@@ -318,6 +325,11 @@ export async function reviewAndAdd(draft: NoteDraft, ctx: ExtensionContext, sign
 	if (deck && !context.decks.includes(deck)) throw new Error(`Unknown deck: ${deck}`);
 	if (!deck) deck = await selectDeck(ctx, signal);
 	if (!deck || signal?.aborted) return { status: "cancelled" };
+	if (draft.occlusion) draftFields(draft, template); // Validate coordinates before any media upload.
+	if (draft.occlusion && /^(?:https?:\/\/|file:\/\/|\/|~\/|\.\.?\/)/i.test(draft.occlusion.image)) {
+		const stored = await storeLocalMedia(draft.occlusion.image.replace(/^file:\/\//, ""));
+		draft = { ...draft, occlusion: { ...draft.occlusion, image: stored } };
+	}
 	const initialFields = await processCardMedia(draftFields(draft, template), draft.images);
 	const note: AddNoteParams = {
 		deckName: deck, modelName: template.name, fields: initialFields, tags: normalizeTags(draft.tags ?? []),

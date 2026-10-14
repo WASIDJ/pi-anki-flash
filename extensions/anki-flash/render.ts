@@ -21,6 +21,7 @@ import {
 import { retrieveMediaFile, storeMediaFile } from "./connect";
 import type { AnkiFlashConfig } from "./config";
 
+import { isImageOcclusion, compositeOcclusion, occlusionText } from "./occlusion";
 import { inTmux, createTmuxImage, layoutTmuxImage, tmuxImagesVisible, releaseTmuxImages } from "./tmux-images";
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,7 @@ function imageDimensions(base64: string, filename: string): { widthPx: number; h
 export async function renderFirstImage(
 	html: string,
 	config: AnkiFlashConfig,
+	transform?: (base64: string) => Promise<string>,
 ): Promise<{ lines: string[]; capped: boolean }> {
 	const rawName = extractImages(html)[0];
 	if (!rawName) return { lines: [], capped: false };
@@ -185,11 +187,12 @@ export async function renderFirstImage(
 		return { lines: [`[image: ${name}]`], capped: false };
 	}
 	try {
-		const b64 = await retrieveMediaFile(name);
+		let b64 = await retrieveMediaFile(name);
 		if (!b64 || typeof b64 !== "string") {
 			return { lines: [`[image: ${name} (unavailable)]`], capped: false };
 		}
-		const dims = imageDimensions(b64, name);
+		if (transform) b64 = await transform(b64);
+		const dims = transform ? getPngDimensions(b64) : imageDimensions(b64, name);
 		if (!dims) return { lines: [`[image: ${name}]`], capped: false };
 		if (inTmux()) {
 			return { lines: [createTmuxImage({ name, base64: b64, ...dims,
@@ -217,6 +220,7 @@ export interface CardRenderResult {
 	questionLines: string[];
 	answerLines: string[];
 	truncated: boolean;
+	replaceQuestionOnAnswer?: boolean;
 }
 
 /** Anki Markdown stores its content in inert scripts for its browser renderer.
@@ -247,14 +251,15 @@ export async function renderCard(
 	answerHtml: string,
 	config: AnkiFlashConfig,
 ): Promise<CardRenderResult> {
+	const occlusion = isImageOcclusion(questionHtml) || isImageOcclusion(answerHtml);
 	questionHtml = markdownSide(questionHtml, "question");
 	answerHtml = markdownSide(answerHtml, "answer");
 	answerHtml = answerOnly(questionHtml, answerHtml);
-	const tQ = textLines(questionHtml);
-	const tA = textLines(answerHtml);
-	const imgQ = await renderFirstImage(questionHtml, config);
-	const sameImage = extractImages(answerHtml)[0] && extractImages(answerHtml)[0] === extractImages(questionHtml)[0];
-	const imgA = sameImage ? { lines: [], capped: false } : await renderFirstImage(answerHtml, config);
+	const tQ = textLines(occlusion ? occlusionText(questionHtml) : questionHtml);
+	const tA = textLines(occlusion ? occlusionText(answerHtml) : answerHtml);
+	const imgQ = await renderFirstImage(questionHtml, config, occlusion ? b64 => compositeOcclusion(b64, questionHtml) : undefined);
+	const sameImage = !occlusion && extractImages(answerHtml)[0] && extractImages(answerHtml)[0] === extractImages(questionHtml)[0];
+	const imgA = sameImage ? { lines: [], capped: false } : await renderFirstImage(answerHtml, config, occlusion ? b64 => compositeOcclusion(b64, answerHtml) : undefined);
 
 	const questionLines = [...(imgQ.lines.length > 0 ? [...imgQ.lines, ...tQ.lines] : tQ.lines)];
 
@@ -269,7 +274,7 @@ export async function renderCard(
 	if (answerLines.length === 0) answerLines.push("[背面无可显示内容，请在 Anki 中检查模板]");
 
 	const truncated = tQ.trimmed || tA.trimmed || imgQ.capped || (!sameImage && imgA.capped);
-	return { questionLines, answerLines, truncated };
+	return { questionLines, answerLines, truncated, ...(occlusion ? { replaceQuestionOnAnswer: true } : {}) };
 }
 
 /** Upload a local media file or remote URL to Anki's media dir; returns the stored filename. */

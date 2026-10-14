@@ -1,6 +1,6 @@
 ---
 name: anki-card-authoring
-description: Make Anki cards from conversation when asked to make card, 制卡, or 记住这个; support automatic or manual template selection and suggested tags.
+description: Make Anki cards from conversation when asked to make card, 制卡, or 记住这个; support automatic or manual template selection, suggested tags, and Image Occlusion from inspected image regions.
 ---
 
 # Anki Card Authoring Workflow
@@ -13,9 +13,11 @@ Call `anki_note_context` to read available note types (templates), exact field n
 
 Choose a template suitable for the material when none was specified: question/answer for direct recall, Cloze for a sentence with a missing fact. Supply named `fields` matching the schema; put `{{c1::answer}}` in an actual `clozeFields` field. 
 
-**Image handling & Image Occlusion rule**:
+**Images and Image Occlusion**:
 - You can freely use images via Markdown `![alt](/path/or/url)` or HTML `<img src="...">` or the `images` parameter. `pi-anki-flash` automatically uploads local files and remote URLs into Anki's `collection.media` and rewrites the card fields.
-- **NEVER use the `Image Occlusion` template**: Anki's native Image Occlusion relies on desktop GUI canvas coordinates. When making cards involving diagrams, diagrams or pictures, use `Anki Markdown` (or `Basic`) with the image on the Front and key takeaways/questions on the Back, or use Cloze below the image.
+- For a user asking to hide labels/regions, choose native `Image Occlusion`. Inspect the original image before placing masks; use its pixel dimensions to convert rectangles to fractions: `left=x/W`, `top=y/H`, `width=w/W`, `height=h/H`. Each rectangle must be wholly inside the image.
+- Call `anki_add_note` with `model: "Image Occlusion"`, `front` (Header), `back` (Back Extra), and `occlusion: {image, masks, hideOthers}`. `image` accepts a local path, URL or existing Anki media filename. A mask is `{left, top, width, height, group?}`. Each mask generates one card by default; matching `group` values hide related regions together on one card. `hideOthers` defaults to true; false leaves unrelated regions visible. Keep one retrieval target per group.
+- The tool generates the native `Occlusion`/`Image` fields and imports the image. Keep the same preview/confirmation flow as other note types. Rectangle creation is supported; review also understands native ellipse and polygon masks. Unknown/custom canvas templates show a placeholder instead of an unmasked front.
 
 Call `anki_add_note` immediately with the draft, model, fields, suggested tags, `guided: true`, and a short `chain.anchor` naming the core concept. Its preview provides y/n confirmation, editing and template/deck switching. This is the review gate; an extra chat approval turn is unnecessary.
 

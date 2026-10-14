@@ -207,7 +207,7 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 			"For /make-card and conversational card-making, set guided=true. After a created result with nextCard, immediately generate exactly one related card using nextCard.direction, previousCard, draft, and instruction; do not ask another chat question. Stop when nextCard is absent.",
 			"Report success only for status=created. For an uncertain write/network error, search for the note before retrying to avoid duplicates.",
 			"Images: Include images in fields via HTML (<img src='...'>) or Markdown (![alt](path/url)), or pass in the images parameter with local file paths or URLs. The plugin automatically imports them into Anki's media storage.",
-			"Do NOT use 'Image Occlusion' template directly via API: Anki's Image Occlusion is a desktop-only GUI canvas template requiring interactive SVG vector coordinates. For image-based recall cards, use 'Basic' or 'Anki Markdown' with the image on Front and explanation on Back.",
+			"For image-region recall use model=Image Occlusion and occlusion={image,masks,hideOthers}. Inspect the image first. Coordinates are fractions of its width/height (0–1); each mask creates one card unless masks share group. The UI still requires confirmation before saving. Use front for Header and back for Back Extra.",
 		],
 		parameters: Type.Object({
 			deck: Type.Optional(Type.String()),
@@ -221,6 +221,15 @@ export function registerAnkiTools(pi: ExtensionAPI): void {
 			chain: Type.Optional(Type.Object({
 				anchor: Type.Optional(Type.String({ description: "The core concept shared by this card chain." })),
 				coveredDirections: Type.Optional(Type.Array(Type.String())),
+			})),
+			occlusion: Type.Optional(Type.Object({
+				image: Type.String({ description: "Existing Anki media filename, local image path, or URL" }),
+				hideOthers: Type.Optional(Type.Boolean({ description: "Default true masks other groups too" })),
+				masks: Type.Array(Type.Object({
+					left: Type.Number({ minimum: 0, maximum: 1 }), top: Type.Number({ minimum: 0, maximum: 1 }),
+					width: Type.Number({ exclusiveMinimum: 0, maximum: 1 }), height: Type.Number({ exclusiveMinimum: 0, maximum: 1 }),
+					group: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
+				}), { minItems: 1, maxItems: 500 }),
 			})),
 			images: Type.Optional(Type.Array(Type.Object({
 				path: Type.Optional(Type.String({ description: "Local image path to upload into Anki media collection" })),
