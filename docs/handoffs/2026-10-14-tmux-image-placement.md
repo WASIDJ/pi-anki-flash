@@ -97,14 +97,17 @@ D. （可选）将改动上游化：pi-tui 的 `encodeKitty` 在 `$TMUX` 下自�
 
 - `tmux/tmux.conf`：保留 `allow-passthrough on`；为 `xterm-256color` 和 `xterm-ghostty` 添加 `RGB` terminal feature。SSH 下通常使用前者；没有 RGB 时 image ID 会被外层颜色降级破坏，图片不显示。
 - `zshrc`：本套 Ghostty 配置在 tmux shell 中默认设置 `PI_IMAGE_PROTOCOL=kitty`，保留显式覆盖；不支持 kitty 的终端可设置 `PI_IMAGE_PROTOCOL=none`。
+- mini-t 的 `~/.tmux.conf` 已从临时单行 passthrough 配置改为加载 `~/.config/tmux/tmux.conf`，避免新 server 忽略 RGB 设置。
 - mini-t 当前 `default` tmux server 已应用上述选项，并为新进程设置 `PI_IMAGE_PROTOCOL=kitty`。已有 shell/Pi 进程需要重新加载配置/扩展；未声明 RGB 的旧客户端需要重新连接 SSH/tmux 才会更新终端 feature。
 
 ### 验证证据
 
 - 旧实现：`node --test tests/tmux-images.test.cjs` 三项失败，分别捕捉普通 placement、非 active 图片输出和退出无删除。
-- 修复后：`npm run typecheck` 通过；`npm test` 45 pass / 1 skip（原有 live Anki skip）。新增七项测试使用真实隔离 tmux server + attached control client，覆盖 virtual placement、窄宽度、非 active、换卡/完成/退出删除、免 tmux、iTerm2 fallback、大图片分块和重复上传。
+- 修复后：`npm run typecheck` 通过；`npm test` 48 pass / 1 skip（原有 live Anki skip）。新增七项测试使用真实隔离 tmux server + attached control client，覆盖 virtual placement、窄宽度、非 active、换卡/完成/退出删除、免 tmux、iTerm2 fallback、大图片分块和重复上传。
 - 实机：Ghostty 1.3.1 → SSH mini-t → tmux 3.6a 三窗格，使用独立 `-L anki-verify` server，保留用户原有 `vibe` 窗格任务。
 - 真实 `pi` 1.1.0 → `/anki` → 图片牌组，确认图片只出现在目标复习窗格，并沿窗格底部裁剪：[截图](assets/2026-10-14-tmux/pi-active.png)。按空格显示答案，没有生成第二个位置的图片；Esc 退出后无残留：[截图](assets/2026-10-14-tmux/pi-exit.png)。没有评分或修改调度数据。
 - 只读 harness 使用真实 `FlashcardComponent`、远端 pi-tui 和 AnkiConnect 图片，确认失焦退化为占位：[截图](assets/2026-10-14-tmux/inactive.png)，恢复后重新显示；切换到本地无图 fixture 时旧图完全消失：[截图](assets/2026-10-14-tmux/text-card.png)。该 fixture 未写入 Anki。
 
 原验收项的图片定位、旧图清理、非 active/未配置 fallback、免 tmux 回归和配置推送均已通过。纯 Ghostty 路径通过协议回归测试，未另开免 tmux Pi 做人工视觉验收。
+
+最后同步时发现远端已含 `3082236`（图片导入、单引号/Markdown 图片解析和文件名归一化）。已合入该提交，解决 `renderFirstImage` 的重叠，保留两边功能；TypeScript 和测试 lookup 同时兼容 Homebrew 与本机独立 Pi Node 安装。最终本地完整测试为 48 pass / 1 skip。
